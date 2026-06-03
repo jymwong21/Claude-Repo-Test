@@ -1,17 +1,22 @@
 import { useState } from 'react';
 import { TOWNS } from '../lib/towns';
 import { GOODS } from '../lib/goods';
+import { getRivalTownId } from '../lib/rival';
 
 interface Props {
   currentTownId: string;
+  day: number;
 }
 
 // Only draw roads between towns within this distance (keeps map readable)
 const ROAD_DISTANCE_THRESHOLD = 45;
 
-export default function WorldMap({ currentTownId }: Props) {
+export default function WorldMap({ currentTownId, day }: Props) {
   const [infoTownId, setInfoTownId] = useState<string | null>(null);
   const infoTown = TOWNS.find(t => t.id === infoTownId);
+
+  const rivalTownId = getRivalTownId(day);
+  const rivalTown = TOWNS.find(t => t.id === rivalTownId);
 
   function handleTownClick(id: string) {
     setInfoTownId(prev => prev === id ? null : id);
@@ -59,6 +64,37 @@ export default function WorldMap({ currentTownId }: Props) {
             );
           })
         )}
+
+        {/* rival dot — drawn before towns so towns render on top */}
+        {rivalTown && (() => {
+          const ty = rivalTown.y * 0.75;
+          const atPlayerTown = rivalTown.id === currentTownId;
+          const ox = atPlayerTown ? 4 : 0;
+          const oy = atPlayerTown ? -4 : 0;
+          return (
+            <g style={{ pointerEvents: 'none' }}>
+              <circle
+                cx={rivalTown.x + ox}
+                cy={ty + oy}
+                r="2.8"
+                fill="#ef4444"
+                stroke="#991b1b"
+                strokeWidth="0.5"
+                opacity="0.9"
+              />
+              <text
+                x={rivalTown.x + ox}
+                y={ty + oy - 4}
+                textAnchor="middle"
+                fontSize="2.5"
+                fill="#ef4444"
+                style={{ pointerEvents: 'none' }}
+              >
+                rival
+              </text>
+            </g>
+          );
+        })()}
 
         {/* towns */}
         {TOWNS.map(town => {
@@ -113,6 +149,9 @@ export default function WorldMap({ currentTownId }: Props) {
                 {infoTown.id === currentTownId && (
                   <span className="text-[10px] text-amber-500 border border-amber-800 rounded px-1">you are here</span>
                 )}
+                {infoTown.id === rivalTownId && (
+                  <span className="text-[10px] text-red-500 border border-red-800 rounded px-1">rival here</span>
+                )}
               </div>
               <div className="flex flex-col gap-0.5 text-xs">
                 <div>
@@ -138,9 +177,15 @@ export default function WorldMap({ currentTownId }: Props) {
       {/* static bottom bar when nothing selected */}
       {!infoTown && (
         <div className="bg-slate-900/80 border-t border-slate-800 px-3 py-1.5 flex items-center justify-between text-[10px] text-slate-600">
-          <span className="flex items-center gap-1.5">
-            <span className="inline-block w-2 h-2 rounded-full bg-amber-400" />
-            You are here
+          <span className="flex items-center gap-2">
+            <span className="flex items-center gap-1">
+              <span className="inline-block w-2 h-2 rounded-full bg-amber-400" />
+              You
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="inline-block w-2 h-2 rounded-full bg-red-500" />
+              Rival
+            </span>
           </span>
           <span>Tap a town to preview it</span>
         </div>

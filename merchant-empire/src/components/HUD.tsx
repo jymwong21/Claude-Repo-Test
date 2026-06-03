@@ -27,6 +27,10 @@ export default function HUD({ state, onPayContract }: Props) {
 
   const activePriceEvents = state.priceEvents.filter(e => e.expiresDay > state.day);
 
+  const rival = state.rival;
+  const rivalAhead = rival.contractIndex > state.contractIndex;
+  const rivalBehind = rival.contractIndex < state.contractIndex;
+
   return (
     <div className="flex flex-col gap-2">
       {/* top stats */}
@@ -89,7 +93,7 @@ export default function HUD({ state, onPayContract }: Props) {
             Owe: <span className={`font-mono font-bold ${isOverdue ? 'text-red-300' : 'text-slate-200'}`}>
               {state.contractDebt.toLocaleString()}g
             </span>
-            {isOverdue && <span className="text-red-600 ml-1 text-[10px]">+8%/day</span>}
+            {isOverdue && <span className="text-red-600 ml-1 text-[10px]">+12%/day</span>}
           </span>
           <span className="text-slate-600">Due Day {state.contractDueDay}</span>
         </div>
@@ -120,6 +124,32 @@ export default function HUD({ state, onPayContract }: Props) {
           <div className="text-xs text-slate-600 text-center">
             Need {(state.contractDebt - state.gold).toLocaleString()}g more to pay off
           </div>
+        )}
+      </div>
+
+      {/* rival status */}
+      <div className="bg-slate-800 rounded-lg px-3 py-2 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="text-base">🏴</span>
+          <div>
+            <div className="text-xs text-slate-500">Rival Merchant</div>
+            <div className="text-xs text-slate-300">
+              Contract{' '}
+              <span className={`font-bold ${rivalAhead ? 'text-red-400' : rivalBehind ? 'text-green-400' : 'text-amber-400'}`}>
+                {Math.min(rival.contractIndex + 1, CONTRACTS.length)}/{CONTRACTS.length}
+              </span>
+              {rival.lastContractPaidDay > 0 && (
+                <span className="text-slate-600 ml-1">· paid Day {rival.lastContractPaidDay}</span>
+              )}
+            </div>
+          </div>
+        </div>
+        {rivalAhead ? (
+          <span className="text-[10px] text-red-400 font-bold border border-red-800/60 rounded px-1.5 py-0.5">AHEAD</span>
+        ) : rivalBehind ? (
+          <span className="text-[10px] text-green-400 font-bold border border-green-800/60 rounded px-1.5 py-0.5">BEHIND</span>
+        ) : (
+          <span className="text-[10px] text-amber-400 border border-amber-800/60 rounded px-1.5 py-0.5">TIED</span>
         )}
       </div>
 

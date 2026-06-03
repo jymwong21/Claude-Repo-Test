@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { GameState } from '../lib/gameState';
-import { buyGood, sellGood, sellAllGood, getCargoUsed, bestSellTown, getEventMultiplier } from '../lib/gameState';
+import { buyGood, sellGood, sellAllGood, getCargoUsed, bestSellTown, getEventMultiplier, getDemandRemaining } from '../lib/gameState';
 import type { GoodId } from '../lib/goods';
 import { GOODS, ALL_GOODS } from '../lib/goods';
 import { TOWNS } from '../lib/towns';
@@ -173,6 +173,9 @@ export default function TradePanel({ state, onChange }: Props) {
               const activeEvent = state.priceEvents.find(
                 e => e.townId === state.currentTownId && e.goodId === good.id && e.expiresDay > state.day
               );
+              const demand = getDemandRemaining(state.demandUsed, state.currentTownId, good.id, GOODS[good.id].basePrice);
+              const demandPct = demand.cap > 0 ? demand.used / demand.cap : 0;
+              const demandColor = demandPct >= 1 ? 'text-red-500' : demandPct >= 0.5 ? 'text-amber-400' : 'text-green-600';
               const maxBuy = maxBuyQty(good.id);
               const canBuy = state.gold >= buyPrice * qty && cargoFree >= qty && qty > 0;
               const canSell = held >= qty && qty > 0;
@@ -212,13 +215,15 @@ export default function TradePanel({ state, onChange }: Props) {
                     </div>
                   </td>
 
-                  {/* Town pays (sell price) */}
+                  {/* Town pays (sell price) + demand saturation */}
                   <td className="text-right px-1">
                     {(() => {
                       const effectiveSell = Math.round(sellPrice * getEventMultiplier(state.priceEvents, state.currentTownId, good.id, state.day));
                       return (
                         <>
-                          <span className="text-slate-400 font-mono text-xs">{effectiveSell}g</span>
+                          <span className={`font-mono text-xs ${demand.used >= demand.cap ? 'text-red-400' : 'text-slate-400'}`}>
+                            {effectiveSell}g
+                          </span>
                           {held > 0 && state.costBasis[good.id] !== undefined && (
                             <div className={`text-[9px] font-bold text-right ${
                               effectiveSell >= (state.costBasis[good.id] ?? 0) ? 'text-green-600' : 'text-red-700'
@@ -227,6 +232,9 @@ export default function TradePanel({ state, onChange }: Props) {
                               {effectiveSell - (state.costBasis[good.id] ?? 0)}g
                             </div>
                           )}
+                          <div className={`text-[9px] text-right ${demandColor}`}>
+                            {demand.used}/{demand.cap}/wk
+                          </div>
                         </>
                       );
                     })()}
