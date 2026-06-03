@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { GameState, TravelResult, RivalNotification } from './lib/gameState';
-import { initGame, saveGame, loadGame, payContract } from './lib/gameState';
+import { initGame, saveGame, loadGame, payContract, travel } from './lib/gameState';
 import type { TravelEvent } from './lib/events';
 import { CONTRACTS } from './lib/contracts';
 import WorldMap from './components/WorldMap';
@@ -104,7 +104,12 @@ export default function App() {
       <main className="flex-1 flex flex-col gap-3 px-4 pb-8 max-w-2xl w-full mx-auto">
         <HUD state={state} onPayContract={handlePayContract} />
 
-        <WorldMap currentTownId={state.currentTownId} day={state.day} />
+        <WorldMap
+          currentTownId={state.currentTownId}
+          day={state.day}
+          speedLevel={state.upgrades.speedLevel}
+          onTravel={(townId) => handleTravel(travel(state, townId))}
+        />
 
         <div className="flex gap-1 bg-slate-900 rounded-xl p-1">
           {([

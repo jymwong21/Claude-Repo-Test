@@ -26,11 +26,6 @@ export default function TradePanel({ state, onChange }: Props) {
 
   function getQty(goodId: GoodId) { return quantities[goodId] ?? 1; }
 
-  function setQty(goodId: GoodId, val: string) {
-    const n = parseInt(val);
-    setQuantities(q => ({ ...q, [goodId]: isNaN(n) ? 1 : Math.max(1, n) }));
-  }
-
   function maxBuyQty(goodId: GoodId) {
     return Math.min(Math.floor(state.gold / market.buyPrice[goodId]), cargoFree);
   }
@@ -149,168 +144,149 @@ export default function TradePanel({ state, onChange }: Props) {
         </div>
       )}
 
-      {/* goods table */}
-      <div className="overflow-x-auto -mx-1">
-        <table className="w-full text-sm border-collapse" style={{ minWidth: 320 }}>
-          <thead>
-            <tr className="text-[10px] text-slate-500 border-b border-slate-700 uppercase tracking-wide">
-              <th className="text-left py-1.5 px-1">Good</th>
-              <th className="text-right py-1.5 px-1">You pay</th>
-              <th className="text-right py-1.5 px-1">Town pays</th>
-              <th className="text-right py-1.5 px-1">Held</th>
-              <th className="py-1.5 px-1" colSpan={2} />
-            </tr>
-          </thead>
-          <tbody>
-            {ALL_GOODS.map(good => {
-              const buyPrice = market.buyPrice[good.id];
-              const sellPrice = market.sellPrice[good.id];
-              const held = state.inventory[good.id] || 0;
-              const qty = getQty(good.id);
-              const isProduced = town.produces.includes(good.id);
-              const isDemanded = town.demands.includes(good.id);
-              const badge = priceBadge(buyPrice, GOODS[good.id].basePrice);
-              const activeEvent = state.priceEvents.find(
-                e => e.townId === state.currentTownId && e.goodId === good.id && e.expiresDay > state.day
-              );
-              const demand = getDemandRemaining(state.demandUsed, state.currentTownId, good.id, GOODS[good.id].basePrice);
-              const demandPct = demand.cap > 0 ? demand.used / demand.cap : 0;
-              const demandColor = demandPct >= 1 ? 'text-red-500' : demandPct >= 0.5 ? 'text-amber-400' : 'text-green-600';
-              const maxBuy = maxBuyQty(good.id);
-              const canBuy = state.gold >= buyPrice * qty && cargoFree >= qty && qty > 0;
-              const canSell = held >= qty && qty > 0;
+      {/* goods cards */}
+      <div className="flex flex-col gap-2">
+        {ALL_GOODS.map(good => {
+          const buyPrice = market.buyPrice[good.id];
+          const sellPrice = market.sellPrice[good.id];
+          const held = state.inventory[good.id] || 0;
+          const qty = getQty(good.id);
+          const isProduced = town.produces.includes(good.id);
+          const isDemanded = town.demands.includes(good.id);
+          const badge = priceBadge(buyPrice, GOODS[good.id].basePrice);
+          const activeEvent = state.priceEvents.find(
+            e => e.townId === state.currentTownId && e.goodId === good.id && e.expiresDay > state.day
+          );
+          const demand = getDemandRemaining(state.demandUsed, state.currentTownId, good.id, GOODS[good.id].basePrice);
+          const demandPct = demand.cap > 0 ? demand.used / demand.cap : 0;
+          const demandDotColor = demandPct >= 1 ? 'text-red-500' : demandPct >= 0.5 ? 'text-amber-400' : 'text-green-600';
+          const maxBuy = maxBuyQty(good.id);
+          const effectiveBuy = Math.round(buyPrice * getEventMultiplier(state.priceEvents, state.currentTownId, good.id, state.day));
+          const effectiveSell = Math.round(sellPrice * getEventMultiplier(state.priceEvents, state.currentTownId, good.id, state.day));
+          const costBasis = state.costBasis[good.id];
+          const canBuy = state.gold >= effectiveBuy * qty && cargoFree >= qty && qty > 0;
+          const canSell = held >= qty && qty > 0;
+          const maxStep = Math.max(held, maxBuy, 1);
 
-              return (
-                <tr key={good.id} className="border-b border-slate-800/50 hover:bg-slate-800/30">
-                  <td className="py-1.5 px-1">
-                    <span className="mr-1">{good.emoji}</span>
-                    <span className={
-                      isProduced ? 'text-green-400' :
-                      isDemanded ? 'text-red-400' :
-                      'text-slate-300'
-                    }>
-                      {good.name}
+          return (
+            <div key={good.id} className="bg-slate-800 rounded-xl p-3">
+              {/* header row: name + badge + demand dot */}
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="text-base shrink-0">{good.emoji}</span>
+                  <span className={`text-sm font-medium truncate ${
+                    isProduced ? 'text-green-400' :
+                    isDemanded ? 'text-red-400' :
+                    'text-slate-200'
+                  }`}>
+                    {good.name}
+                  </span>
+                  {activeEvent ? (
+                    <span className={`text-[9px] font-bold px-1 rounded leading-tight shrink-0 ${
+                      activeEvent.label === 'SHORTAGE'
+                        ? 'bg-red-900 text-red-300'
+                        : 'bg-blue-900 text-blue-300'
+                    }`}>
+                      ⚡{activeEvent.label}
                     </span>
-                  </td>
+                  ) : (
+                    <span className={`text-[9px] font-bold px-1 rounded leading-tight shrink-0 ${badge.cls}`}>
+                      {badge.label}
+                    </span>
+                  )}
+                </div>
+                <span className={`text-lg leading-none shrink-0 ml-2 ${demandDotColor}`} title={`${demand.used}/${demand.cap} sold this week`}>●</span>
+              </div>
 
-                  {/* You pay (buy price) */}
-                  <td className="text-right px-1">
-                    <div className="inline-flex flex-col items-end gap-0.5">
-                      <span className="text-amber-300 font-mono text-xs">
-                        {Math.round(buyPrice * getEventMultiplier(state.priceEvents, state.currentTownId, good.id, state.day))}g
-                      </span>
-                      {activeEvent ? (
-                        <span className={`text-[9px] font-bold px-1 rounded leading-tight ${
-                          activeEvent.label === 'SHORTAGE'
-                            ? 'bg-red-900 text-red-300'
-                            : 'bg-blue-900 text-blue-300'
-                        }`}>
-                          ⚡{activeEvent.label}
-                        </span>
-                      ) : (
-                        <span className={`text-[9px] font-bold px-1 rounded leading-tight ${badge.cls}`}>
-                          {badge.label}
-                        </span>
-                      )}
-                    </div>
-                  </td>
+              {/* price row */}
+              <div className="flex items-baseline justify-between text-xs mb-3">
+                <span className="text-slate-400">
+                  Buy: <span className="text-amber-300 font-mono font-bold text-sm">{effectiveBuy}g</span>
+                </span>
+                <span className="text-right">
+                  <span className={`font-mono font-bold text-sm ${demand.used >= demand.cap ? 'text-red-400' : 'text-slate-300'}`}>
+                    Sell: {effectiveSell}g
+                  </span>
+                  {held > 0 && costBasis !== undefined && (
+                    <span className={`ml-1.5 font-mono font-bold text-xs ${effectiveSell >= costBasis ? 'text-green-400' : 'text-red-400'}`}>
+                      {effectiveSell >= costBasis ? '+' : ''}{effectiveSell - costBasis}g
+                    </span>
+                  )}
+                </span>
+              </div>
 
-                  {/* Town pays (sell price) + demand saturation */}
-                  <td className="text-right px-1">
-                    {(() => {
-                      const effectiveSell = Math.round(sellPrice * getEventMultiplier(state.priceEvents, state.currentTownId, good.id, state.day));
-                      return (
-                        <>
-                          <span className={`font-mono text-xs ${demand.used >= demand.cap ? 'text-red-400' : 'text-slate-400'}`}>
-                            {effectiveSell}g
-                          </span>
-                          {held > 0 && state.costBasis[good.id] !== undefined && (
-                            <div className={`text-[9px] font-bold text-right ${
-                              effectiveSell >= (state.costBasis[good.id] ?? 0) ? 'text-green-600' : 'text-red-700'
-                            }`}>
-                              {effectiveSell >= (state.costBasis[good.id] ?? 0) ? '+' : ''}
-                              {effectiveSell - (state.costBasis[good.id] ?? 0)}g
-                            </div>
-                          )}
-                          <div className={`text-[9px] text-right ${demandColor}`}>
-                            {demand.used}/{demand.cap}/wk
-                          </div>
-                        </>
-                      );
-                    })()}
-                  </td>
+              {/* controls row */}
+              <div className="flex items-center gap-2">
+                {/* stepper */}
+                <div className="flex items-center">
+                  <button
+                    onClick={() => setQuantities(q => ({ ...q, [good.id]: Math.max(1, (q[good.id] ?? 1) - 1) }))}
+                    disabled={qty <= 1}
+                    className="w-8 h-8 rounded-l-lg bg-slate-700 hover:bg-slate-600 disabled:opacity-30 text-white font-bold text-base flex items-center justify-center"
+                  >
+                    −
+                  </button>
+                  <span className="w-10 h-8 bg-slate-700 border-x border-slate-600 flex items-center justify-center font-mono text-sm text-white">
+                    {qty}
+                  </span>
+                  <button
+                    onClick={() => setQuantities(q => ({ ...q, [good.id]: Math.min(maxStep, (q[good.id] ?? 1) + 1) }))}
+                    disabled={qty >= maxStep}
+                    className="w-8 h-8 rounded-r-lg bg-slate-700 hover:bg-slate-600 disabled:opacity-30 text-white font-bold text-base flex items-center justify-center"
+                  >
+                    +
+                  </button>
+                </div>
+                {maxBuy > 1 && (
+                  <button
+                    onClick={() => setQuantities(q => ({ ...q, [good.id]: maxBuy }))}
+                    className="text-[10px] text-slate-600 hover:text-slate-300 leading-none"
+                  >
+                    max
+                  </button>
+                )}
 
-                  {/* Held */}
-                  <td className="text-right px-1 font-mono text-xs">
-                    {held > 0 ? (
-                      <span className="text-white">{held}</span>
-                    ) : (
-                      <span className="text-slate-700">—</span>
-                    )}
-                  </td>
+                {/* buy/sell buttons */}
+                <div className="flex gap-1.5 ml-auto">
+                  <button
+                    onClick={() => handleBuy(good.id)}
+                    disabled={!canBuy}
+                    className="h-10 px-4 rounded-xl bg-green-800 hover:bg-green-700 active:bg-green-600 disabled:opacity-20 disabled:cursor-not-allowed text-white text-sm font-bold transition-colors"
+                  >
+                    Buy
+                  </button>
+                  {held > 0 ? (
+                    <button
+                      onClick={() => handleSellAll(good.id)}
+                      title={`Sell all ${held} units`}
+                      className="h-10 px-3 rounded-xl bg-red-900 hover:bg-red-800 active:bg-red-700 text-white text-sm font-bold transition-colors whitespace-nowrap"
+                    >
+                      Sell All
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleSell(good.id)}
+                      disabled={!canSell}
+                      className="h-10 px-4 rounded-xl bg-red-900 hover:bg-red-800 active:bg-red-700 disabled:opacity-20 disabled:cursor-not-allowed text-white text-sm font-bold transition-colors"
+                    >
+                      Sell
+                    </button>
+                  )}
+                </div>
+              </div>
 
-                  {/* controls */}
-                  <td className="px-1">
-                    <div className="flex items-center gap-0.5 justify-end">
-                      <input
-                        type="number"
-                        min={1}
-                        max={Math.max(held, maxBuy, 1)}
-                        value={qty}
-                        onChange={e => setQty(good.id, e.target.value)}
-                        className="w-10 bg-slate-800 border border-slate-700 rounded px-1 py-0.5 text-right text-white text-xs"
-                      />
-                      {maxBuy > 1 && (
-                        <button
-                          onClick={() => setQuantities(q => ({ ...q, [good.id]: maxBuy }))}
-                          className="text-[9px] text-slate-600 hover:text-slate-300 leading-none px-0.5"
-                          title="Set to max you can afford"
-                        >
-                          max
-                        </button>
-                      )}
-                    </div>
-                  </td>
-
-                  <td className="px-0.5">
-                    <div className="flex gap-0.5">
-                      <button
-                        onClick={() => handleBuy(good.id)}
-                        disabled={!canBuy}
-                        className="text-xs px-1.5 py-1 rounded bg-green-800 hover:bg-green-700 disabled:opacity-20 disabled:cursor-not-allowed text-white font-medium"
-                      >
-                        Buy
-                      </button>
-                      {held > 0 ? (
-                        <button
-                          onClick={() => handleSellAll(good.id)}
-                          title={`Sell all ${held} units`}
-                          className="text-xs px-1.5 py-1 rounded bg-red-900 hover:bg-red-800 text-white font-medium"
-                        >
-                          Sell All
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => handleSell(good.id)}
-                          disabled={!canSell}
-                          className="text-xs px-1.5 py-1 rounded bg-red-900 hover:bg-red-800 disabled:opacity-20 disabled:cursor-not-allowed text-white font-medium"
-                        >
-                          Sell
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+              {held > 0 && (
+                <div className="mt-2 text-[10px] text-slate-500">Holding {held} unit{held !== 1 ? 's' : ''}</div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       <div className="text-[10px] text-slate-600 flex flex-wrap gap-x-3 gap-y-0.5">
         <span><span className="text-green-400">Green</span> = produced here (buy cheap)</span>
         <span><span className="text-red-400">Red</span> = demanded here (sell for more)</span>
-        <span>Town pays = what you receive when selling</span>
+        <span>● = weekly demand (green/amber/red)</span>
       </div>
     </div>
   );

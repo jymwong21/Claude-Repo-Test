@@ -11,7 +11,7 @@ export default function HelpModal({ onClose }: Props) {
         <div className="flex flex-col gap-4 text-sm text-slate-300">
           <section>
             <h3 className="font-semibold text-slate-100 mb-1">The Goal</h3>
-            <p>Accumulate gold by buying goods cheaply in one town and selling them for more in another. Hit each wealth milestone — 2,000g → 6,000g → 15,000g → 40,000g — to grow your empire.</p>
+            <p>The Merchant's Guild has given you a series of loans. Repay all four contracts before they're overdue — starting small (500g) and escalating to 15,000g. Beat your rival merchant to each payment and you'll earn bonus time; fall behind and your deadline shrinks.</p>
           </section>
 
           <section>
@@ -33,7 +33,7 @@ export default function HelpModal({ onClose }: Props) {
           </section>
 
           <section>
-            <h3 className="font-semibold text-slate-100 mb-1">Trade Table Columns</h3>
+            <h3 className="font-semibold text-slate-100 mb-1">Trade Cards</h3>
             <div className="flex flex-col gap-1.5">
               <div>
                 <span className="text-green-400 font-medium">Green goods</span> = produced here, priced cheaply. Best time to buy.
@@ -41,9 +41,8 @@ export default function HelpModal({ onClose }: Props) {
               <div>
                 <span className="text-red-400 font-medium">Red goods</span> = in high demand here. Sell these for top price.
               </div>
-              <div className="mt-1 flex flex-col gap-0.5">
-                <div><span className="text-slate-200 font-medium">You pay</span> = the price you pay to buy from this town.</div>
-                <div><span className="text-slate-200 font-medium">Town pays</span> = the gold you receive when selling here. The small number below it shows profit or loss vs. what you paid.</div>
+              <div className="mt-1">
+                The colored <span className="text-slate-200 font-medium">● dot</span> on each card shows weekly demand saturation — green is fine, amber is filling up, red means the market is saturated and you'll earn very little.
               </div>
             </div>
           </section>
@@ -54,8 +53,23 @@ export default function HelpModal({ onClose }: Props) {
           </section>
 
           <section>
+            <h3 className="font-semibold text-slate-100 mb-1">Demand Caps</h3>
+            <p>Each town absorbs a limited quantity of goods per week. Once the cap is hit, the sell price drops to ~15% of normal. Repeating the same route too many times makes it worthless — diversify.</p>
+          </section>
+
+          <section>
+            <h3 className="font-semibold text-slate-100 mb-1">Price Events</h3>
+            <p>Random <span className="text-red-300 font-medium">SHORTAGE</span> and <span className="text-blue-300 font-medium">SURPLUS</span> events temporarily change prices. Look for the <span className="text-slate-200">⚡</span> badge — shortages mean sell here now, surpluses mean buy cheap.</p>
+          </section>
+
+          <section>
             <h3 className="font-semibold text-slate-100 mb-1">The Map</h3>
-            <p>Tap any town on the map to preview what it produces and demands — useful for planning trips without travelling there first.</p>
+            <p>Tap any town to see what it produces and demands — then tap <span className="text-amber-300 font-medium">Travel Here</span> to go there directly. The red dot is your rival merchant.</p>
+          </section>
+
+          <section>
+            <h3 className="font-semibold text-slate-100 mb-1">Rival Merchant</h3>
+            <p>A rival is racing to repay the same contracts on a fixed schedule. If they pay before you, your next deadline shrinks by 3 days. Pay first and your next deadline extends by 2 days. The status panel shows whether you're ahead, behind, or tied.</p>
           </section>
 
           <section>
@@ -65,7 +79,7 @@ export default function HelpModal({ onClose }: Props) {
 
           <section>
             <h3 className="font-semibold text-slate-100 mb-1">Quick Start</h3>
-            <p>You start at Farmstead. Buy <span className="text-green-400">Grain</span> or <span className="text-green-400">Herbs</span> (cheap here), then check <span className="text-amber-300">Trade Routes</span> to see where to sell them for profit.</p>
+            <p>You start at Farmstead. Buy <span className="text-green-400">Grain</span> or <span className="text-green-400">Herbs</span> (cheap here), then check <span className="text-amber-300">Trade Routes</span> to see where to sell them for profit. Keep an eye on the contract deadline in the status panel.</p>
           </section>
         </div>
 

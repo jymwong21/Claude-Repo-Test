@@ -2,18 +2,21 @@ import { useState } from 'react';
 import { TOWNS } from '../lib/towns';
 import { GOODS } from '../lib/goods';
 import { getRivalTownId } from '../lib/rival';
+import { travelDays } from '../lib/gameState';
 
 interface Props {
   currentTownId: string;
   day: number;
+  speedLevel: number;
+  onTravel: (townId: string) => void;
 }
 
-// Only draw roads between towns within this distance (keeps map readable)
 const ROAD_DISTANCE_THRESHOLD = 45;
 
-export default function WorldMap({ currentTownId, day }: Props) {
+export default function WorldMap({ currentTownId, day, speedLevel, onTravel }: Props) {
   const [infoTownId, setInfoTownId] = useState<string | null>(null);
   const infoTown = TOWNS.find(t => t.id === infoTownId);
+  const currentTown = TOWNS.find(t => t.id === currentTownId)!;
 
   const rivalTownId = getRivalTownId(day);
   const rivalTown = TOWNS.find(t => t.id === rivalTownId);
@@ -108,6 +111,9 @@ export default function WorldMap({ currentTownId, day }: Props) {
               onClick={() => handleTownClick(town.id)}
               style={{ cursor: 'pointer' }}
             >
+              {/* invisible touch target for better mobile tapping */}
+              <circle cx={town.x} cy={ty} r="7" fill="transparent" />
+
               {isCurrent && (
                 <circle cx={town.x} cy={ty} r="5.8" fill="none" stroke="#fbbf24" strokeWidth="0.9" opacity="0.9" />
               )}
@@ -139,7 +145,7 @@ export default function WorldMap({ currentTownId, day }: Props) {
       </svg>
 
       {/* town info panel — shown when a town is tapped */}
-      <div className={`transition-all duration-200 overflow-hidden ${infoTown ? 'max-h-28' : 'max-h-0'}`}>
+      <div className={`transition-all duration-200 overflow-hidden ${infoTown ? 'max-h-44' : 'max-h-0'}`}>
         {infoTown && (
           <div className="bg-slate-900/95 border-t border-slate-700 px-4 py-3 flex items-start justify-between gap-3">
             <div className="flex-1 min-w-0">
@@ -163,6 +169,14 @@ export default function WorldMap({ currentTownId, day }: Props) {
                   <span className="text-slate-300">{infoTown.demands.map(g => `${GOODS[g].emoji} ${GOODS[g].name}`).join(', ')}</span>
                 </div>
               </div>
+              {infoTown.id !== currentTownId && (
+                <button
+                  onClick={() => { onTravel(infoTown.id); setInfoTownId(null); }}
+                  className="mt-2 w-full py-1.5 bg-amber-700 hover:bg-amber-600 active:bg-amber-500 rounded-lg text-xs font-bold text-white transition-colors"
+                >
+                  Travel Here — {travelDays(currentTown, infoTown, speedLevel)}d
+                </button>
+              )}
             </div>
             <button
               onClick={() => setInfoTownId(null)}
@@ -187,7 +201,7 @@ export default function WorldMap({ currentTownId, day }: Props) {
               Rival
             </span>
           </span>
-          <span>Tap a town to preview it</span>
+          <span>Tap a town to travel there</span>
         </div>
       )}
     </div>
