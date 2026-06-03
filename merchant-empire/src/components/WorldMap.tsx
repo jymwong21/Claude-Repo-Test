@@ -1,76 +1,99 @@
+import { useState } from 'react';
 import { TOWNS } from '../lib/towns';
+import { GOODS } from '../lib/goods';
 
 interface Props {
   currentTownId: string;
-  onTownClick: (townId: string) => void;
-  selectedTownId: string | null;
 }
 
-export default function WorldMap({ currentTownId, onTownClick, selectedTownId }: Props) {
-  return (
-    <div className="relative w-full aspect-[4/3] bg-[#1a2744] rounded-xl overflow-hidden border border-[#2e4a8a] select-none">
-      {/* terrain texture dots */}
-      <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 75" preserveAspectRatio="none">
-        {/* sea */}
-        <rect width="100" height="75" fill="#1a2744" />
-        {/* landmass */}
-        <ellipse cx="50" cy="45" rx="42" ry="28" fill="#2d4a2d" opacity="0.6" />
-        <ellipse cx="30" cy="35" rx="25" ry="18" fill="#3a5a3a" opacity="0.5" />
-        <ellipse cx="65" cy="50" rx="20" ry="15" fill="#2d4a2d" opacity="0.4" />
+// Only draw roads between towns within this distance (keeps map readable)
+const ROAD_DISTANCE_THRESHOLD = 45;
 
-        {/* roads between towns */}
+export default function WorldMap({ currentTownId }: Props) {
+  const [infoTownId, setInfoTownId] = useState<string | null>(null);
+  const infoTown = TOWNS.find(t => t.id === infoTownId);
+
+  function handleTownClick(id: string) {
+    setInfoTownId(prev => prev === id ? null : id);
+  }
+
+  return (
+    <div className="relative w-full rounded-xl overflow-hidden border border-[#2e4a8a] select-none">
+      {/* map */}
+      <svg
+        className="w-full block"
+        viewBox="0 0 100 75"
+        style={{ display: 'block' }}
+      >
+        {/* background sea */}
+        <rect width="100" height="75" fill="#1a2744" />
+        {/* landmass shapes */}
+        <ellipse cx="48" cy="44" rx="43" ry="27" fill="#243c24" opacity="0.7" />
+        <ellipse cx="28" cy="34" rx="22" ry="16" fill="#2d4a2d" opacity="0.5" />
+        <ellipse cx="68" cy="52" rx="18" ry="13" fill="#243c24" opacity="0.4" />
+        {/* mountain hint near mining town */}
+        <polygon points="35,48 38,40 41,48" fill="#3a3028" opacity="0.5" />
+        <polygon points="32,50 36,42 40,50" fill="#2e2820" opacity="0.4" />
+        {/* forest hint near forest village */}
+        <circle cx="58" cy="55" r="3" fill="#1e3d1e" opacity="0.5" />
+        <circle cx="63" cy="53" r="2.5" fill="#1e3d1e" opacity="0.4" />
+        <circle cx="61" cy="58" r="2" fill="#1e3d1e" opacity="0.4" />
+
+        {/* roads — only between nearby towns */}
         {TOWNS.map((from, fi) =>
-          TOWNS.slice(fi + 1).map(to => (
-            <line
-              key={`${from.id}-${to.id}`}
-              x1={from.x} y1={from.y * 0.75}
-              x2={to.x} y2={to.y * 0.75}
-              stroke="#8b7355"
-              strokeWidth="0.4"
-              strokeDasharray="1.5,1.5"
-              opacity="0.3"
-            />
-          ))
+          TOWNS.slice(fi + 1).map(to => {
+            const dx = to.x - from.x;
+            const dy = to.y - from.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist > ROAD_DISTANCE_THRESHOLD) return null;
+            return (
+              <line
+                key={`${from.id}-${to.id}`}
+                x1={from.x} y1={from.y * 0.75}
+                x2={to.x} y2={to.y * 0.75}
+                stroke="#8b7355"
+                strokeWidth="0.5"
+                strokeDasharray="1.5,1.5"
+                opacity="0.35"
+              />
+            );
+          })
         )}
 
         {/* towns */}
         {TOWNS.map(town => {
           const isCurrent = town.id === currentTownId;
-          const isSelected = town.id === selectedTownId;
+          const isInfo = town.id === infoTownId;
           const ty = town.y * 0.75;
 
           return (
             <g
               key={town.id}
-              onClick={() => onTownClick(town.id)}
-              className="cursor-pointer"
-              style={{ pointerEvents: 'all' }}
+              onClick={() => handleTownClick(town.id)}
+              style={{ cursor: 'pointer' }}
             >
-              {/* glow ring for current */}
               {isCurrent && (
-                <circle cx={town.x} cy={ty} r="5.5" fill="none" stroke="#fbbf24" strokeWidth="0.8" opacity="0.8" />
+                <circle cx={town.x} cy={ty} r="5.8" fill="none" stroke="#fbbf24" strokeWidth="0.9" opacity="0.9" />
               )}
-              {/* selection ring */}
-              {isSelected && !isCurrent && (
-                <circle cx={town.x} cy={ty} r="5.5" fill="none" stroke="#60a5fa" strokeWidth="0.8" opacity="0.8" />
+              {isInfo && !isCurrent && (
+                <circle cx={town.x} cy={ty} r="5.8" fill="none" stroke="#60a5fa" strokeWidth="0.9" opacity="0.9" />
               )}
-              {/* town dot */}
               <circle
                 cx={town.x}
                 cy={ty}
                 r="3.5"
-                fill={isCurrent ? '#fbbf24' : isSelected ? '#93c5fd' : '#c4a35a'}
-                stroke={isCurrent ? '#f59e0b' : '#8b7355'}
+                fill={isCurrent ? '#fbbf24' : isInfo ? '#93c5fd' : '#c4a35a'}
+                stroke={isCurrent ? '#f59e0b' : '#6b5a38'}
                 strokeWidth="0.5"
               />
-              {/* label */}
               <text
                 x={town.x}
-                y={ty + 6.5}
+                y={ty + 7}
                 textAnchor="middle"
                 fontSize="3.2"
-                fill={isCurrent ? '#fbbf24' : '#e2d5b8'}
+                fill={isCurrent ? '#fbbf24' : '#d4c5a0'}
                 fontWeight={isCurrent ? 'bold' : 'normal'}
+                style={{ pointerEvents: 'none' }}
               >
                 {town.name}
               </text>
@@ -79,18 +102,49 @@ export default function WorldMap({ currentTownId, onTownClick, selectedTownId }:
         })}
       </svg>
 
-      {/* compass rose */}
-      <div className="absolute top-2 right-3 text-[#8b7355] text-xs opacity-60 font-mono leading-tight text-right">
-        <div>N</div>
+      {/* town info panel — shown when a town is tapped */}
+      <div className={`transition-all duration-200 overflow-hidden ${infoTown ? 'max-h-28' : 'max-h-0'}`}>
+        {infoTown && (
+          <div className="bg-slate-900/95 border-t border-slate-700 px-4 py-3 flex items-start justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <span className="text-base">{infoTown.emoji}</span>
+                <span className="font-semibold text-amber-300 text-sm">{infoTown.name}</span>
+                {infoTown.id === currentTownId && (
+                  <span className="text-[10px] text-amber-500 border border-amber-800 rounded px-1">you are here</span>
+                )}
+              </div>
+              <div className="flex flex-col gap-0.5 text-xs">
+                <div>
+                  <span className="text-green-400 font-medium">Produces: </span>
+                  <span className="text-slate-300">{infoTown.produces.map(g => `${GOODS[g].emoji} ${GOODS[g].name}`).join(', ')}</span>
+                </div>
+                <div>
+                  <span className="text-red-400 font-medium">Demands: </span>
+                  <span className="text-slate-300">{infoTown.demands.map(g => `${GOODS[g].emoji} ${GOODS[g].name}`).join(', ')}</span>
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={() => setInfoTownId(null)}
+              className="text-slate-600 hover:text-slate-400 text-lg leading-none shrink-0 mt-0.5"
+            >
+              ×
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* legend */}
-      <div className="absolute bottom-2 left-2 flex gap-3 text-[10px] text-[#8b7355]">
-        <span className="flex items-center gap-1">
-          <span className="inline-block w-2 h-2 rounded-full bg-[#fbbf24]" />
-          You are here
-        </span>
-      </div>
+      {/* static bottom bar when nothing selected */}
+      {!infoTown && (
+        <div className="bg-slate-900/80 border-t border-slate-800 px-3 py-1.5 flex items-center justify-between text-[10px] text-slate-600">
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block w-2 h-2 rounded-full bg-amber-400" />
+            You are here
+          </span>
+          <span>Tap a town to preview it</span>
+        </div>
+      )}
     </div>
   );
 }

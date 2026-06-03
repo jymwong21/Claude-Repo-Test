@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { GameState } from '../lib/gameState';
-import { buyGood, sellGood, getCargoUsed, bestSellTown } from '../lib/gameState';
+import { buyGood, sellGood, sellAllGood, getCargoUsed, bestSellTown } from '../lib/gameState';
 import type { GoodId } from '../lib/goods';
 import { GOODS, ALL_GOODS } from '../lib/goods';
 import { TOWNS } from '../lib/towns';
@@ -47,28 +47,39 @@ export default function TradePanel({ state, onChange }: Props) {
     if (next !== state) { onChange(next); setQuantities(q => ({ ...q, [goodId]: 1 })); }
   }
 
-  // profit intel: goods you're holding with a profitable sell destination
+  function handleSellAll(goodId: GoodId) {
+    const next = sellAllGood(state, goodId);
+    if (next !== state) onChange(next);
+  }
+
+  // goods being carried, with best sell destination
   const heldGoods = ALL_GOODS.filter(g => (state.inventory[g.id] || 0) > 0);
-  const profitRoutes = heldGoods.map(good => {
+  const cargoRoutes = heldGoods.map(good => {
     const held = state.inventory[good.id];
+    const costPaid = state.costBasis[good.id] ?? 0;
     const best = bestSellTown(state, good.id);
     const bestTown = TOWNS.find(t => t.id === best.townId)!;
-    const profitPerUnit = best.sellPrice - market.buyPrice[good.id];
-    return { good, held, best, bestTown, profitPerUnit };
+    const profitPerUnit = costPaid > 0 ? best.sellPrice - costPaid : null;
+    return { good, held, costPaid, best, bestTown, profitPerUnit };
   }).filter(r => r.best.townId !== '');
 
-  // cheap buys here with good sell potential elsewhere
-  const buyOpportunities = ALL_GOODS.map(good => {
-    const buyPrice = market.buyPrice[good.id];
-    const badge = priceBadge(buyPrice, GOODS[good.id].basePrice);
-    if (badge.label !== 'CHEAP') return null;
-    const bestSell = bestSellTown(state, good.id);
-    if (!bestSell.townId) return null;
-    const bestTown = TOWNS.find(t => t.id === bestSell.townId)!;
-    const profitPerUnit = bestSell.sellPrice - buyPrice;
-    if (profitPerUnit <= 0) return null;
-    return { good, buyPrice, bestTown, profitPerUnit };
-  }).filter(Boolean).sort((a, b) => b!.profitPerUnit - a!.profitPerUnit).slice(0, 3);
+  // top buy opportunities at this town (regardless of what you're holding)
+  const buyOpportunities = ALL_GOODS
+    .filter(() => cargoFree > 0)
+    .map(good => {
+      const buyPrice = market.buyPrice[good.id];
+      const best = bestSellTown(state, good.id);
+      if (!best.townId) return null;
+      const bestTown = TOWNS.find(t => t.id === best.townId)!;
+      const profitPerUnit = best.sellPrice - buyPrice;
+      if (profitPerUnit <= 0) return null;
+      return { good, buyPrice, bestTown, profitPerUnit };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b!.profitPerUnit - a!.profitPerUnit)
+    .slice(0, 3);
+
+  const showIntel = cargoRoutes.length > 0 || buyOpportunities.length > 0;
 
   return (
     <div className="flex flex-col gap-4">
@@ -93,35 +104,44 @@ export default function TradePanel({ state, onChange }: Props) {
       </div>
 
       {/* profit intel */}
-      {(profitRoutes.length > 0 || buyOpportunities.length > 0) && (
-        <div className="bg-amber-950/40 border border-amber-800/50 rounded-xl p-3">
-          <div className="text-xs font-semibold text-amber-400 mb-2">💡 Profit Intel</div>
+      {showIntel && (
+        <div className="bg-amber-950/40 border border-amber-800/40 rounded-xl p-3 flex flex-col gap-2">
+          <div className="text-xs font-semibold text-amber-400">💡 Trade Routes</div>
 
-          {profitRoutes.length > 0 && (
-            <div className="mb-2">
-              <div className="text-xs text-slate-500 mb-1">Sell your cargo at:</div>
-              {profitRoutes.map(({ good, held, bestTown, profitPerUnit }) => (
-                <div key={good.id} className="flex items-center justify-between text-xs py-0.5">
-                  <span>
-                    {good.emoji} {good.name} ×{held} → {bestTown.emoji} {bestTown.name}
+          {cargoRoutes.length > 0 && (
+            <div>
+              <div className="text-[10px] text-slate-500 mb-1 uppercase tracking-wide">Sell your cargo at</div>
+              {cargoRoutes.map(({ good, held, costPaid, bestTown, best, profitPerUnit }) => (
+                <div key={good.id} className="flex items-center justify-between text-xs py-0.5 gap-2">
+                  <span className="text-slate-300">
+                    {good.emoji} {good.name} ×{held}
+                    {costPaid > 0 && <span className="text-slate-600 ml-1">(paid {costPaid}g)</span>}
                   </span>
-                  <span className={`font-mono font-bold ${profitPerUnit > 0 ? 'text-green-400' : 'text-red-400'}`}>
-                    {profitPerUnit > 0 ? '+' : ''}{profitPerUnit * held}g
-                  </span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-slate-400">{bestTown.emoji} {bestTown.name} · {best.sellPrice}g/unit</span>
+                    {profitPerUnit !== null && (
+                      <span className={`font-mono font-bold text-xs ${profitPerUnit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        {profitPerUnit >= 0 ? '+' : ''}{profitPerUnit * held}g
+                      </span>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
           )}
 
-          {buyOpportunities.length > 0 && profitRoutes.length === 0 && (
+          {buyOpportunities.length > 0 && (
             <div>
-              <div className="text-xs text-slate-500 mb-1">Best buys here:</div>
+              <div className="text-[10px] text-slate-500 mb-1 uppercase tracking-wide">Best buys here</div>
               {buyOpportunities.map(opp => opp && (
-                <div key={opp.good.id} className="flex items-center justify-between text-xs py-0.5">
-                  <span>
-                    {opp.good.emoji} {opp.good.name} ({opp.buyPrice}g) → {opp.bestTown.emoji} {opp.bestTown.name}
+                <div key={opp.good.id} className="flex items-center justify-between text-xs py-0.5 gap-2">
+                  <span className="text-slate-300">
+                    {opp.good.emoji} {opp.good.name} at {opp.buyPrice}g
                   </span>
-                  <span className="font-mono font-bold text-green-400">+{opp.profitPerUnit}g/unit</span>
+                  <span className="text-slate-400 shrink-0">
+                    → {opp.bestTown.emoji} {opp.bestTown.name}
+                    <span className="text-green-400 font-mono font-bold ml-1.5">+{opp.profitPerUnit}g/unit</span>
+                  </span>
                 </div>
               ))}
             </div>
@@ -131,16 +151,14 @@ export default function TradePanel({ state, onChange }: Props) {
 
       {/* goods table */}
       <div className="overflow-x-auto -mx-1">
-        <table className="w-full text-sm border-collapse min-w-[340px]">
+        <table className="w-full text-sm border-collapse" style={{ minWidth: 320 }}>
           <thead>
-            <tr className="text-xs text-slate-500 border-b border-slate-700">
+            <tr className="text-[10px] text-slate-500 border-b border-slate-700 uppercase tracking-wide">
               <th className="text-left py-1.5 px-1">Good</th>
-              <th className="text-right py-1.5 px-1">Buy</th>
-              <th className="text-right py-1.5 px-1">Sell</th>
-              <th className="text-right py-1.5 px-1">You</th>
-              <th className="py-1.5 px-1 w-16" />
-              <th className="py-1.5 px-1 w-8" />
-              <th className="py-1.5 px-1 w-8" />
+              <th className="text-right py-1.5 px-1">You pay</th>
+              <th className="text-right py-1.5 px-1">Town pays</th>
+              <th className="text-right py-1.5 px-1">Held</th>
+              <th className="py-1.5 px-1" colSpan={2} />
             </tr>
           </thead>
           <tbody>
@@ -152,64 +170,105 @@ export default function TradePanel({ state, onChange }: Props) {
               const isProduced = town.produces.includes(good.id);
               const isDemanded = town.demands.includes(good.id);
               const badge = priceBadge(buyPrice, GOODS[good.id].basePrice);
+              const maxBuy = maxBuyQty(good.id);
               const canBuy = state.gold >= buyPrice * qty && cargoFree >= qty && qty > 0;
               const canSell = held >= qty && qty > 0;
-              const maxBuy = maxBuyQty(good.id);
 
               return (
-                <tr key={good.id} className="border-b border-slate-800/60 hover:bg-slate-800/30">
+                <tr key={good.id} className="border-b border-slate-800/50 hover:bg-slate-800/30">
                   <td className="py-1.5 px-1">
                     <span className="mr-1">{good.emoji}</span>
-                    <span className={isProduced ? 'text-green-400' : isDemanded ? 'text-red-400' : 'text-slate-300'}>
+                    <span className={
+                      isProduced ? 'text-green-400' :
+                      isDemanded ? 'text-red-400' :
+                      'text-slate-300'
+                    }>
                       {good.name}
                     </span>
                   </td>
+
+                  {/* You pay (buy price) */}
                   <td className="text-right px-1">
-                    <div className="flex flex-col items-end gap-0.5">
+                    <div className="inline-flex flex-col items-end gap-0.5">
                       <span className="text-amber-300 font-mono text-xs">{buyPrice}g</span>
-                      <span className={`text-[9px] font-bold px-1 rounded ${badge.cls}`}>{badge.label}</span>
+                      <span className={`text-[9px] font-bold px-1 rounded leading-tight ${badge.cls}`}>
+                        {badge.label}
+                      </span>
                     </div>
                   </td>
-                  <td className="text-right px-1 text-slate-400 font-mono text-xs">{sellPrice}g</td>
-                  <td className="text-right px-1 font-mono text-xs">{held > 0 ? <span className="text-white">{held}</span> : <span className="text-slate-600">—</span>}</td>
+
+                  {/* Town pays (sell price) */}
+                  <td className="text-right px-1">
+                    <span className="text-slate-400 font-mono text-xs">{sellPrice}g</span>
+                    {held > 0 && state.costBasis[good.id] !== undefined && (
+                      <div className={`text-[9px] font-bold text-right ${
+                        sellPrice >= (state.costBasis[good.id] ?? 0) ? 'text-green-600' : 'text-red-700'
+                      }`}>
+                        {sellPrice >= (state.costBasis[good.id] ?? 0) ? '+' : ''}
+                        {sellPrice - (state.costBasis[good.id] ?? 0)}g
+                      </div>
+                    )}
+                  </td>
+
+                  {/* Held */}
+                  <td className="text-right px-1 font-mono text-xs">
+                    {held > 0 ? (
+                      <span className="text-white">{held}</span>
+                    ) : (
+                      <span className="text-slate-700">—</span>
+                    )}
+                  </td>
+
+                  {/* controls */}
                   <td className="px-1">
                     <div className="flex items-center gap-0.5 justify-end">
                       <input
                         type="number"
                         min={1}
-                        max={Math.max(held, maxBuy)}
+                        max={Math.max(held, maxBuy, 1)}
                         value={qty}
                         onChange={e => setQty(good.id, e.target.value)}
-                        className="w-10 bg-slate-800 border border-slate-600 rounded px-1 py-0.5 text-right text-white text-xs"
+                        className="w-10 bg-slate-800 border border-slate-700 rounded px-1 py-0.5 text-right text-white text-xs"
                       />
-                      {maxBuy > 0 && (
+                      {maxBuy > 1 && (
                         <button
                           onClick={() => setQuantities(q => ({ ...q, [good.id]: maxBuy }))}
-                          className="text-[9px] text-slate-500 hover:text-slate-300 px-0.5"
-                          title="Set to max"
+                          className="text-[9px] text-slate-600 hover:text-slate-300 leading-none px-0.5"
+                          title="Set to max you can afford"
                         >
                           max
                         </button>
                       )}
                     </div>
                   </td>
+
                   <td className="px-0.5">
-                    <button
-                      onClick={() => handleBuy(good.id)}
-                      disabled={!canBuy}
-                      className="text-xs px-1.5 py-1 rounded bg-green-800 hover:bg-green-700 disabled:opacity-25 disabled:cursor-not-allowed text-white font-medium"
-                    >
-                      Buy
-                    </button>
-                  </td>
-                  <td className="px-0.5">
-                    <button
-                      onClick={() => handleSell(good.id)}
-                      disabled={!canSell}
-                      className="text-xs px-1.5 py-1 rounded bg-red-900 hover:bg-red-800 disabled:opacity-25 disabled:cursor-not-allowed text-white font-medium"
-                    >
-                      Sell
-                    </button>
+                    <div className="flex gap-0.5">
+                      <button
+                        onClick={() => handleBuy(good.id)}
+                        disabled={!canBuy}
+                        className="text-xs px-1.5 py-1 rounded bg-green-800 hover:bg-green-700 disabled:opacity-20 disabled:cursor-not-allowed text-white font-medium"
+                      >
+                        Buy
+                      </button>
+                      {held > 0 ? (
+                        <button
+                          onClick={() => handleSellAll(good.id)}
+                          title={`Sell all ${held} units`}
+                          className="text-xs px-1.5 py-1 rounded bg-red-900 hover:bg-red-800 text-white font-medium"
+                        >
+                          Sell All
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleSell(good.id)}
+                          disabled={!canSell}
+                          className="text-xs px-1.5 py-1 rounded bg-red-900 hover:bg-red-800 disabled:opacity-20 disabled:cursor-not-allowed text-white font-medium"
+                        >
+                          Sell
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               );
@@ -218,10 +277,10 @@ export default function TradePanel({ state, onChange }: Props) {
         </table>
       </div>
 
-      <div className="text-[10px] text-slate-600 flex gap-3">
-        <span><span className="text-green-400">Green</span> = cheap here (buy)</span>
-        <span><span className="text-red-400">Red</span> = needed here (sell)</span>
-        <span>Buy price × your qty vs. your gold</span>
+      <div className="text-[10px] text-slate-600 flex flex-wrap gap-x-3 gap-y-0.5">
+        <span><span className="text-green-400">Green</span> = produced here (buy cheap)</span>
+        <span><span className="text-red-400">Red</span> = demanded here (sell for more)</span>
+        <span>Town pays = what you receive when selling</span>
       </div>
     </div>
   );

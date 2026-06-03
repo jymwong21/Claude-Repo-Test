@@ -18,7 +18,7 @@ export interface PlayerInventory {
 
 export interface Upgrades {
   cargoLevel: number;  // 0-3 → 20, 35, 60, 100 units
-  speedLevel: number;  // 0-1 → normal, fast (30% faster)
+  speedLevel: number;  // 0-1 → normal, fast
 }
 
 export const CARGO_LEVELS = [20, 35, 60, 100];
@@ -35,11 +35,12 @@ export interface GameState {
   gold: number;
   currentTownId: string;
   inventory: PlayerInventory;
+  // what you paid per unit (weighted average) — used for real profit display
+  costBasis: Partial<Record<string, number>>;
   cargoCapacity: number;
   markets: Record<string, TownMarket>;
   log: string[];
-  winTarget: number;
-  milestoneReached: number;  // index of last hit milestone
+  milestoneReached: number;  // index into WIN_MILESTONES, -1 = none yet
   upgrades: Upgrades;
 }
 
@@ -48,7 +49,7 @@ function clamp(val: number, min: number, max: number) {
 }
 
 function seededRandom(seed: number): number {
-  const x = Math.sin(seed) * 10000;
+  const x = Math.sin(seed + 1) * 10000;
   return x - Math.floor(x);
 }
 
@@ -93,10 +94,10 @@ export function initGame(): GameState {
     gold: 200,
     currentTownId: 'farmstead',
     inventory,
+    costBasis: {},
     cargoCapacity: 20,
     markets,
     log: ['You begin your merchant journey at Farmstead with 200 gold.'],
-    winTarget: WIN_MILESTONES[0],
     milestoneReached: -1,
     upgrades: { cargoLevel: 0, speedLevel: 0 },
   };
@@ -162,7 +163,8 @@ export function travel(state: GameState, destinationId: string): TravelResult {
     ],
   };
 
-  const travelSeed = state.day * 997 + destinationId.length * 31 + state.gold * 0.01;
+  // seed based on departure state, not gold (avoids float precision issues)
+  const travelSeed = state.day * 997 + state.currentTownId.length * 53 + destinationId.length * 31;
   const event = rollTravelEvent(newState, travelSeed);
   const stateWithEvent = event ? event.apply(newState) : newState;
 
@@ -171,12 +173,17 @@ export function travel(state: GameState, destinationId: string): TravelResult {
 
 export function buyGood(state: GameState, goodId: GoodId, qty: number): GameState {
   const market = state.markets[state.currentTownId];
-  const price = market.buyPrice[goodId] * qty;
+  const priceEach = market.buyPrice[goodId];
+  const totalCost = priceEach * qty;
   const cargoUsed = getCargoUsed(state.inventory);
 
-  if (qty <= 0 || price > state.gold || cargoUsed + qty > state.cargoCapacity) return state;
+  if (qty <= 0 || totalCost > state.gold || cargoUsed + qty > state.cargoCapacity) return state;
 
-  const newInventory = { ...state.inventory, [goodId]: (state.inventory[goodId] || 0) + qty };
+  const prevQty = state.inventory[goodId] || 0;
+  const prevBasis = state.costBasis[goodId] ?? 0;
+  const newAvgCost = prevQty === 0
+    ? priceEach
+    : Math.round((prevQty * prevBasis + qty * priceEach) / (prevQty + qty));
 
   const newMarket = { ...market };
   const newSupply = { ...market.supplyModifier };
@@ -194,11 +201,12 @@ export function buyGood(state: GameState, goodId: GoodId, qty: number): GameStat
   const good = GOODS[goodId];
   return {
     ...state,
-    gold: state.gold - price,
-    inventory: newInventory,
+    gold: state.gold - totalCost,
+    inventory: { ...state.inventory, [goodId]: prevQty + qty },
+    costBasis: { ...state.costBasis, [goodId]: newAvgCost },
     markets: { ...state.markets, [state.currentTownId]: newMarket },
     log: [
-      `Bought ${qty}× ${good.name} for ${price}g (${market.buyPrice[goodId]}g each).`,
+      `Bought ${qty}× ${good.name} for ${totalCost}g (${priceEach}g each).`,
       ...state.log.slice(0, 19),
     ],
   };
@@ -210,8 +218,9 @@ export function sellGood(state: GameState, goodId: GoodId, qty: number): GameSta
 
   if (qty <= 0 || qty > available) return state;
 
-  const earned = market.sellPrice[goodId] * qty;
-  const newInventory = { ...state.inventory, [goodId]: available - qty };
+  const priceEach = market.sellPrice[goodId];
+  const earned = priceEach * qty;
+  const newQty = available - qty;
 
   const newMarket = { ...market };
   const newSupply = { ...market.supplyModifier };
@@ -229,26 +238,39 @@ export function sellGood(state: GameState, goodId: GoodId, qty: number): GameSta
   const good = GOODS[goodId];
   const newGold = state.gold + earned;
 
-  // check if a new milestone was just crossed
-  let { milestoneReached, winTarget } = state;
-  const nextMilestoneIdx = milestoneReached + 1;
-  if (nextMilestoneIdx < WIN_MILESTONES.length && newGold >= WIN_MILESTONES[nextMilestoneIdx]) {
-    milestoneReached = nextMilestoneIdx;
-    winTarget = WIN_MILESTONES[nextMilestoneIdx];
+  // clear cost basis when fully sold
+  const newCostBasis = { ...state.costBasis };
+  if (newQty === 0) delete newCostBasis[goodId];
+
+  // check milestone crossing
+  let { milestoneReached } = state;
+  const nextIdx = milestoneReached + 1;
+  if (nextIdx < WIN_MILESTONES.length && newGold >= WIN_MILESTONES[nextIdx]) {
+    milestoneReached = nextIdx;
   }
+
+  const basisCost = state.costBasis[goodId] ?? 0;
+  const profitNote = basisCost > 0
+    ? ` (${priceEach >= basisCost ? '+' : ''}${(priceEach - basisCost) * qty}g profit)`
+    : '';
 
   return {
     ...state,
     gold: newGold,
-    inventory: newInventory,
+    inventory: { ...state.inventory, [goodId]: newQty },
+    costBasis: newCostBasis,
     markets: { ...state.markets, [state.currentTownId]: newMarket },
     milestoneReached,
-    winTarget,
     log: [
-      `Sold ${qty}× ${good.name} for ${earned}g (${market.sellPrice[goodId]}g each).`,
+      `Sold ${qty}× ${good.name} for ${earned}g (${priceEach}g each)${profitNote}.`,
       ...state.log.slice(0, 19),
     ],
   };
+}
+
+export function sellAllGood(state: GameState, goodId: GoodId): GameState {
+  const qty = state.inventory[goodId] || 0;
+  return qty > 0 ? sellGood(state, goodId, qty) : state;
 }
 
 export function buyCargoUpgrade(state: GameState): GameState {
@@ -268,8 +290,7 @@ export function buyCargoUpgrade(state: GameState): GameState {
 }
 
 export function buySpeedUpgrade(state: GameState): GameState {
-  if (state.upgrades.speedLevel >= 1) return state;
-  if (state.gold < SPEED_UPGRADE_COST) return state;
+  if (state.upgrades.speedLevel >= 1 || state.gold < SPEED_UPGRADE_COST) return state;
   return {
     ...state,
     gold: state.gold - SPEED_UPGRADE_COST,
@@ -288,6 +309,19 @@ export function bestSellTown(state: GameState, goodId: GoodId): { townId: string
   return best;
 }
 
+export function migrateState(raw: GameState): GameState {
+  const state = { ...raw };
+  if (!state.upgrades) state.upgrades = { cargoLevel: 0, speedLevel: 0 };
+  if (state.milestoneReached === undefined) state.milestoneReached = -1;
+  if (!state.costBasis) state.costBasis = {};
+  // remove legacy fields
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  delete (state as any).won;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  delete (state as any).winTarget;
+  return state;
+}
+
 export function saveGame(state: GameState) {
   localStorage.setItem('merchant_empire_save', JSON.stringify(state));
 }
@@ -295,5 +329,5 @@ export function saveGame(state: GameState) {
 export function loadGame(): GameState | null {
   const raw = localStorage.getItem('merchant_empire_save');
   if (!raw) return null;
-  try { return JSON.parse(raw) as GameState; } catch { return null; }
+  try { return migrateState(JSON.parse(raw) as GameState); } catch { return null; }
 }

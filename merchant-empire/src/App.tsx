@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { GameState, TravelResult } from './lib/gameState';
 import { initGame, saveGame, loadGame, WIN_MILESTONES } from './lib/gameState';
 import type { TravelEvent } from './lib/events';
@@ -16,36 +16,26 @@ type Tab = 'trade' | 'travel' | 'upgrade';
 const HELP_KEY = 'merchant_empire_seen_help';
 
 export default function App() {
-  const [state, setState] = useState<GameState>(() => {
-    const saved = loadGame();
-    // migrate old saves missing upgrades field
-    if (saved && !saved.upgrades) {
-      return { ...saved, upgrades: { cargoLevel: 0, speedLevel: 0 }, milestoneReached: -1 };
-    }
-    return saved ?? initGame();
-  });
+  const [state, setState] = useState<GameState>(() => loadGame() ?? initGame());
   const [tab, setTab] = useState<Tab>('trade');
-  const [selectedTownId, setSelectedTownId] = useState<string | null>(null);
   const [pendingEvent, setPendingEvent] = useState<TravelEvent | null>(null);
   const [showHelp, setShowHelp] = useState(() => !localStorage.getItem(HELP_KEY));
   const [milestonePopup, setMilestonePopup] = useState<number | null>(null);
 
+  const prevMilestoneRef = useRef(state.milestoneReached);
+
   useEffect(() => {
     saveGame(state);
-  }, [state]);
-
-  // watch for newly crossed milestones
-  const prevMilestoneRef = useState(state.milestoneReached)[0];
-  useEffect(() => {
-    if (state.milestoneReached > prevMilestoneRef && state.milestoneReached >= 0) {
+    if (state.milestoneReached > prevMilestoneRef.current) {
       setMilestonePopup(WIN_MILESTONES[state.milestoneReached]);
+      prevMilestoneRef.current = state.milestoneReached;
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.milestoneReached]);
+  }, [state]);
 
   function handleTravel(result: TravelResult) {
     setState(result.state);
     if (result.event) setPendingEvent(result.event);
+    setTab('trade');
   }
 
   function handleNewGame() {
@@ -53,18 +43,15 @@ export default function App() {
     setState(fresh);
     saveGame(fresh);
     setTab('trade');
-    setSelectedTownId(null);
     setPendingEvent(null);
     setMilestonePopup(null);
+    prevMilestoneRef.current = -1;
   }
 
   function closeHelp() {
     localStorage.setItem(HELP_KEY, '1');
     setShowHelp(false);
   }
-
-  const nextMilestoneIdx = state.milestoneReached + 1;
-  const nextMilestone = WIN_MILESTONES[nextMilestoneIdx];
 
   return (
     <div className="min-h-svh bg-[#0f0e17] text-white flex flex-col">
@@ -92,13 +79,8 @@ export default function App() {
       <main className="flex-1 flex flex-col gap-3 px-4 pb-8 max-w-2xl w-full mx-auto">
         <HUD state={state} />
 
-        <WorldMap
-          currentTownId={state.currentTownId}
-          onTownClick={id => setSelectedTownId(id === selectedTownId ? null : id)}
-          selectedTownId={selectedTownId}
-        />
+        <WorldMap currentTownId={state.currentTownId} />
 
-        {/* tab bar */}
         <div className="flex gap-1 bg-slate-900 rounded-xl p-1">
           {([
             { key: 'trade', label: '🛒 Trade' },
@@ -109,9 +91,7 @@ export default function App() {
               key={key}
               onClick={() => setTab(key)}
               className={`flex-1 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                tab === key
-                  ? 'bg-amber-600 text-white'
-                  : 'text-slate-400 hover:text-slate-200'
+                tab === key ? 'bg-amber-600 text-white' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
               {label}
@@ -120,38 +100,20 @@ export default function App() {
         </div>
 
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-          {tab === 'trade' && (
-            <TradePanel state={state} onChange={setState} />
-          )}
+          {tab === 'trade' && <TradePanel state={state} onChange={setState} />}
           {tab === 'travel' && (
-            <TravelPanel
-              state={state}
-              onChange={handleTravel}
-              onSelectTown={id => { setSelectedTownId(id); setTab('trade'); }}
-            />
+            <TravelPanel state={state} onChange={handleTravel} />
           )}
-          {tab === 'upgrade' && (
-            <UpgradePanel state={state} onChange={setState} />
-          )}
+          {tab === 'upgrade' && <UpgradePanel state={state} onChange={setState} />}
         </div>
 
         <EventLog log={state.log} />
-
-        {/* goal reminder if no cargo and gold low */}
-        {nextMilestone && state.gold < nextMilestone && (
-          <div className="text-center text-xs text-slate-600">
-            Next milestone: <span className="text-amber-700">{nextMilestone.toLocaleString()}g</span>
-            {' '}— {(nextMilestone - state.gold).toLocaleString()}g to go
-          </div>
-        )}
       </main>
 
-      {/* event modal */}
       {pendingEvent && (
         <EventModal event={pendingEvent} onClose={() => setPendingEvent(null)} />
       )}
 
-      {/* milestone celebration */}
       {milestonePopup !== null && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-6">
           <div className="bg-slate-900 border border-amber-600 rounded-2xl p-8 max-w-sm w-full text-center shadow-2xl">
@@ -185,7 +147,6 @@ export default function App() {
         </div>
       )}
 
-      {/* help modal */}
       {showHelp && <HelpModal onClose={closeHelp} />}
     </div>
   );
