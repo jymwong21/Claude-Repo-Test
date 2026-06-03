@@ -8,7 +8,7 @@ import {
   CONTRACTS, OVERDUE_RATE, BANKRUPTCY_DAYS,
   getDemandCap, DEMAND_CAP_WINDOW, DEMAND_SATURATED_PRICE_MULT,
 } from './contracts';
-import { initRival, advanceRival } from './rival';
+import { initRival, advanceRival, RIVAL_NAME } from './rival';
 import type { RivalState } from './rival';
 
 export interface TownMarket {
@@ -449,27 +449,45 @@ export function sellAllGood(state: GameState, goodId: GoodId): GameState {
   return qty > 0 ? sellGood(state, goodId, qty) : state;
 }
 
-export function payContract(state: GameState): GameState {
-  if (state.gold < state.contractDebt || state.gamePhase !== 'playing') return state;
+export interface PayContractResult {
+  state: GameState;
+  narrative: TravelEvent | null;
+}
+
+export function payContract(state: GameState): PayContractResult {
+  if (state.gold < state.contractDebt || state.gamePhase !== 'playing') {
+    return { state, narrative: null };
+  }
 
   const newGold = state.gold - state.contractDebt;
   const newIdx = state.contractIndex + 1;
-
-  // Bonus days if player pays before rival has paid this contract
   const playerAhead = state.contractIndex >= state.rival.contractIndex;
+  const contractName = CONTRACTS[state.contractIndex].label;
 
   if (newIdx >= CONTRACTS.length) {
+    const narrative: TravelEvent = {
+      title: 'All Contracts Cleared!',
+      emoji: '🏆',
+      tone: 'good',
+      description: playerAhead
+        ? `You slide the final payment across the Guild counter. The senior clerk stamps your ledger with a rare smile. ${RIVAL_NAME} isn't here yet. Four contracts, all on time. The empire is yours.`
+        : `The debt is settled at last. The clerk notes that ${RIVAL_NAME} finished ahead of you — but you made it. Four contracts cleared. The Guild acknowledges your name.`,
+      apply: s => s,
+    };
     return {
-      ...state,
-      gold: newGold,
-      contractIndex: newIdx,
-      contractDebt: 0,
-      contractBaseRepay: 0,
-      gamePhase: 'won',
-      log: [
-        `🏆 All contracts repaid on Day ${state.day}! The empire is yours!`,
-        ...state.log.slice(0, 19),
-      ],
+      state: {
+        ...state,
+        gold: newGold,
+        contractIndex: newIdx,
+        contractDebt: 0,
+        contractBaseRepay: 0,
+        gamePhase: 'won',
+        log: [
+          `🏆 All contracts repaid on Day ${state.day}! The empire is yours!`,
+          ...state.log.slice(0, 19),
+        ],
+      },
+      narrative,
     };
   }
 
@@ -477,17 +495,36 @@ export function payContract(state: GameState): GameState {
   const bonusDays = playerAhead ? 2 : 0;
   const dueDay = state.day + next.days + bonusDays;
 
+  const narrative: TravelEvent = playerAhead
+    ? {
+        title: `${contractName} — Paid First`,
+        emoji: '📜',
+        tone: 'good',
+        description: `You step up to the Guild counter and settle the "${contractName}". ${RIVAL_NAME} hasn't paid yet. The clerk extends your next deadline by 2 days as a reward for leading the race.`,
+        apply: s => s,
+      }
+    : {
+        title: `${contractName} — Settled`,
+        emoji: '📜',
+        tone: 'neutral',
+        description: `The "${contractName}" is paid. ${RIVAL_NAME} cleared his version days ago — the clerk barely looks up. You're behind. The next contract is due in ${next.days} days.`,
+        apply: s => s,
+      };
+
   return {
-    ...state,
-    gold: newGold + next.loan,
-    contractIndex: newIdx,
-    contractDebt: next.repay,
-    contractBaseRepay: next.repay,
-    contractDueDay: dueDay,
-    log: [
-      `Contract paid!${bonusDays > 0 ? ' Beat the rival — +2 days bonus!' : ''} Borrowed ${next.loan.toLocaleString()}g — repay ${next.repay.toLocaleString()}g by Day ${dueDay}.`,
-      ...state.log.slice(0, 19),
-    ],
+    state: {
+      ...state,
+      gold: newGold + next.loan,
+      contractIndex: newIdx,
+      contractDebt: next.repay,
+      contractBaseRepay: next.repay,
+      contractDueDay: dueDay,
+      log: [
+        `Contract paid!${bonusDays > 0 ? ' Beat the rival — +2 days bonus!' : ''} Borrowed ${next.loan.toLocaleString()}g — repay ${next.repay.toLocaleString()}g by Day ${dueDay}.`,
+        ...state.log.slice(0, 19),
+      ],
+    },
+    narrative,
   };
 }
 

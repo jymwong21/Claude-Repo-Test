@@ -1,3 +1,5 @@
+export const RIVAL_NAME = 'Silas Greymark';
+
 export interface RivalState {
   contractIndex: number;       // how many contracts rival has paid (0 = none yet)
   paidOnDay: number[];

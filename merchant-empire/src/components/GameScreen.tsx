@@ -1,5 +1,6 @@
 import type { GameState } from '../lib/gameState';
 import { CONTRACTS } from '../lib/contracts';
+import { RIVAL_NAME } from '../lib/rival';
 
 interface Props {
   state: GameState;
@@ -32,8 +33,13 @@ export default function GameScreen({ state, onNewGame }: Props) {
             You repaid all four contracts in{' '}
             <span className="text-amber-400 font-mono font-bold text-xl">{state.day} days</span>.
           </p>
-          <p className="text-slate-500 text-sm mb-6">
+          <p className="text-slate-500 text-sm mb-2">
             The Merchant's Guild acknowledges your mastery.
+          </p>
+          <p className="text-slate-600 text-sm text-center leading-relaxed mb-6">
+            {state.rival.contractIndex < CONTRACTS.length
+              ? `${RIVAL_NAME} was still working on his ${['first', 'second', 'third', 'fourth'][state.rival.contractIndex] ?? 'final'} contract when you finished. He didn't say a word.`
+              : `${RIVAL_NAME} finished at the same time. The clerks had to check their ledgers twice.`}
           </p>
 
           <div className="bg-slate-800 rounded-xl p-4 mb-6 text-left">
@@ -83,6 +89,12 @@ export default function GameScreen({ state, onNewGame }: Props) {
       <div className="max-w-sm w-full text-center">
         <div className="text-6xl mb-4">💸</div>
         <h1 className="text-3xl font-bold text-red-400 mb-2">Bankrupt</h1>
+        <p className="text-slate-500 text-sm text-center mb-1">
+          {RIVAL_NAME} cleared his accounts{' '}
+          {state.rival.contractIndex > 0
+            ? `${state.rival.contractIndex} contract${state.rival.contractIndex !== 1 ? 's' : ''} ago`
+            : 'before you even started'}.
+        </p>
         <p className="text-slate-300 mb-1">
           You failed to repay the{' '}
           <span className="text-red-300 font-semibold">{failedContract.label}</span>{' '}

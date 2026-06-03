@@ -3,6 +3,7 @@ import type { GameState, TravelResult, RivalNotification } from './lib/gameState
 import { initGame, saveGame, loadGame, payContract, travel } from './lib/gameState';
 import type { TravelEvent } from './lib/events';
 import { CONTRACTS } from './lib/contracts';
+import { RIVAL_NAME } from './lib/rival';
 import WorldMap from './components/WorldMap';
 import TradePanel from './components/TradePanel';
 import TravelPanel from './components/TravelPanel';
@@ -12,28 +13,29 @@ import EventLog from './components/EventLog';
 import EventModal from './components/EventModal';
 import HelpModal from './components/HelpModal';
 import GameScreen from './components/GameScreen';
+import TutorialModal from './components/TutorialModal';
 
 type Tab = 'trade' | 'travel' | 'upgrade';
 
 const HELP_KEY = 'merchant_empire_seen_help';
-
-const CONTRACT_NAMES = CONTRACTS.map(c => c.label);
+const TUTORIAL_KEY = 'merchant_empire_tutorial_done';
 
 function buildRivalEvent(notif: RivalNotification): TravelEvent {
+  const contractName = CONTRACTS[notif.contractIndex].label;
   if (notif.playerPenalty) {
     return {
-      title: 'Rival Merchant Advances!',
+      title: `${RIVAL_NAME} Pulls Ahead`,
       emoji: '🏴',
       tone: 'bad',
-      description: `The Guild's Factor repaid their "${CONTRACT_NAMES[notif.contractIndex]}" before you. Your current deadline has been shortened by ${Math.abs(notif.daysDelta)} days. Move faster!`,
+      description: `${RIVAL_NAME} settled his "${contractName}" with the Guild this morning — before you. The clerk adjusts your ledger. Your current deadline has been cut by 3 days. Move faster.`,
       apply: s => s,
     };
   }
   return {
-    title: "You're Ahead!",
+    title: 'You Beat the Rival',
     emoji: '🏆',
     tone: 'good',
-    description: `The rival merchant just paid their "${CONTRACT_NAMES[notif.contractIndex]}" — but you were already ahead! Your next deadline has been extended by 2 days.`,
+    description: `${RIVAL_NAME} just paid his "${contractName}" — but you were already ahead. He'll find your name already checked when he arrives at the counter. Your next deadline extends by 2 days.`,
     apply: s => s,
   };
 }
@@ -43,7 +45,8 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('trade');
   const [pendingEvent, setPendingEvent] = useState<TravelEvent | null>(null);
   const [rivalNotif, setRivalNotif] = useState<RivalNotification | null>(null);
-  const [showHelp, setShowHelp] = useState(() => !localStorage.getItem(HELP_KEY));
+  const [showHelp, setShowHelp] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(() => !localStorage.getItem(TUTORIAL_KEY));
 
   useEffect(() => {
     saveGame(state);
@@ -57,7 +60,9 @@ export default function App() {
   }
 
   function handlePayContract() {
-    setState(s => payContract(s));
+    const result = payContract(state);
+    setState(result.state);
+    if (result.narrative) setPendingEvent(result.narrative);
   }
 
   function handleNewGame() {
@@ -67,6 +72,8 @@ export default function App() {
     setTab('trade');
     setPendingEvent(null);
     setRivalNotif(null);
+    setShowTutorial(true);
+    localStorage.removeItem(TUTORIAL_KEY);
   }
 
   function closeHelp() {
@@ -149,6 +156,9 @@ export default function App() {
       )}
 
       {showHelp && <HelpModal onClose={closeHelp} />}
+      {showTutorial && state.gamePhase === 'playing' && (
+        <TutorialModal onDone={() => { localStorage.setItem(TUTORIAL_KEY, '1'); setShowTutorial(false); }} />
+      )}
     </div>
   );
 }

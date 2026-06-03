@@ -19,10 +19,20 @@ function priceBadge(buyPrice: number, basePrice: number): { label: string; cls: 
 
 export default function TradePanel({ state, onChange }: Props) {
   const [quantities, setQuantities] = useState<Partial<Record<GoodId, number>>>({});
+  const [showAll, setShowAll] = useState(false);
   const market = state.markets[state.currentTownId];
   const town = TOWNS.find(t => t.id === state.currentTownId)!;
   const cargoUsed = getCargoUsed(state.inventory);
   const cargoFree = state.cargoCapacity - cargoUsed;
+
+  const visibleGoods = showAll
+    ? ALL_GOODS
+    : ALL_GOODS.filter(g =>
+        town.produces.includes(g.id) ||
+        town.demands.includes(g.id) ||
+        (state.inventory[g.id] || 0) > 0
+      );
+  const hiddenCount = ALL_GOODS.length - visibleGoods.length;
 
   function getQty(goodId: GoodId) { return quantities[goodId] ?? 1; }
 
@@ -146,7 +156,7 @@ export default function TradePanel({ state, onChange }: Props) {
 
       {/* goods cards */}
       <div className="flex flex-col gap-2">
-        {ALL_GOODS.map(good => {
+        {visibleGoods.map(good => {
           const buyPrice = market.buyPrice[good.id];
           const sellPrice = market.sellPrice[good.id];
           const held = state.inventory[good.id] || 0;
@@ -282,6 +292,24 @@ export default function TradePanel({ state, onChange }: Props) {
           );
         })}
       </div>
+
+      {/* show all / show less toggle */}
+      {!showAll && hiddenCount > 0 && (
+        <button
+          onClick={() => setShowAll(true)}
+          className="text-xs text-slate-600 hover:text-slate-400 text-center w-full py-1.5 border border-slate-800 rounded-lg transition-colors"
+        >
+          Show {hiddenCount} more good{hiddenCount !== 1 ? 's' : ''} ↓
+        </button>
+      )}
+      {showAll && hiddenCount > 0 && (
+        <button
+          onClick={() => setShowAll(false)}
+          className="text-xs text-slate-600 hover:text-slate-400 text-center w-full py-1.5 border border-slate-800 rounded-lg transition-colors"
+        >
+          Show less ↑
+        </button>
+      )}
 
       <div className="text-[10px] text-slate-600 flex flex-wrap gap-x-3 gap-y-0.5">
         <span><span className="text-green-400">Green</span> = produced here (buy cheap)</span>
