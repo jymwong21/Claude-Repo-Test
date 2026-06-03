@@ -4,6 +4,7 @@ import { TOWNS } from './towns';
 import type { Town } from './towns';
 import { rollTravelEvent } from './events';
 import type { TravelEvent } from './events';
+import { CONTRACTS, OVERDUE_RATE, BANKRUPTCY_DAYS } from './contracts';
 
 export interface TownMarket {
   townId: string;
@@ -17,8 +18,17 @@ export interface PlayerInventory {
 }
 
 export interface Upgrades {
-  cargoLevel: number;  // 0-3 → 20, 35, 60, 100 units
-  speedLevel: number;  // 0-1 → normal, fast
+  cargoLevel: number;
+  speedLevel: number;
+}
+
+export interface PriceEvent {
+  id: string;
+  townId: string;
+  goodId: string;
+  multiplier: number;
+  label: 'SHORTAGE' | 'SURPLUS';
+  expiresDay: number;
 }
 
 export const CARGO_LEVELS = [20, 35, 60, 100];
@@ -28,20 +38,24 @@ export const CARGO_UPGRADE_LABELS = ['Larger Cart', 'Merchant Wagon', 'Trade Car
 export const SPEED_UPGRADE_COST = 600;
 export const SPEED_UPGRADE_LABEL = 'Swift Horses';
 
-export const WIN_MILESTONES = [2000, 6000, 15000, 40000];
-
 export interface GameState {
   day: number;
   gold: number;
   currentTownId: string;
   inventory: PlayerInventory;
-  // what you paid per unit (weighted average) — used for real profit display
   costBasis: Partial<Record<string, number>>;
   cargoCapacity: number;
   markets: Record<string, TownMarket>;
   log: string[];
-  milestoneReached: number;  // index into WIN_MILESTONES, -1 = none yet
   upgrades: Upgrades;
+  // contract system
+  contractIndex: number;       // 0-3 active; CONTRACTS.length = all done
+  contractDebt: number;        // current debt (grows when overdue)
+  contractBaseRepay: number;   // original repay amount for interest calc
+  contractDueDay: number;      // absolute day by which debt must be paid
+  priceEvents: PriceEvent[];
+  gamePhase: 'playing' | 'won' | 'lost';
+  lostReason?: string;
 }
 
 function clamp(val: number, min: number, max: number) {
@@ -57,6 +71,16 @@ export function computeBasePrice(town: Town, goodId: GoodId, supplyModifier: num
   const good = GOODS[goodId];
   const townMod = town.priceModifiers[goodId] ?? 1.0;
   return Math.round(good.basePrice * townMod * supplyModifier);
+}
+
+export function getEventMultiplier(
+  priceEvents: PriceEvent[],
+  townId: string,
+  goodId: string,
+  day: number,
+): number {
+  const ev = priceEvents.find(e => e.townId === townId && e.goodId === goodId && e.expiresDay > day);
+  return ev ? ev.multiplier : 1;
 }
 
 function buildMarket(town: Town, seed: number): TownMarket {
@@ -80,26 +104,63 @@ function buildMarket(town: Town, seed: number): TownMarket {
   };
 }
 
+function updatePriceEvents(priceEvents: PriceEvent[], oldDay: number, newDay: number): PriceEvent[] {
+  const active = priceEvents.filter(e => e.expiresDay > newDay);
+
+  const oldPeriod = Math.floor((oldDay - 1) / 7);
+  const newPeriod = Math.floor((newDay - 1) / 7);
+  if (newPeriod <= oldPeriod) return active;
+
+  const seed = newPeriod * 9973;
+  if (seededRandom(seed) > 0.38) return active;
+
+  const townIdx = Math.floor(seededRandom(seed * 7) * TOWNS.length);
+  const goodIdx = Math.floor(seededRandom(seed * 13) * ALL_GOODS.length);
+  const isShortage = seededRandom(seed * 19) > 0.45;
+  const duration = 3 + Math.floor(seededRandom(seed * 23) * 3);
+  const multiplier = isShortage
+    ? 1.5 + seededRandom(seed * 29) * 0.6
+    : 0.35 + seededRandom(seed * 31) * 0.3;
+
+  return [...active, {
+    id: `pe-${newPeriod}`,
+    townId: TOWNS[townIdx].id,
+    goodId: ALL_GOODS[goodIdx].id,
+    multiplier,
+    label: isShortage ? 'SHORTAGE' : 'SURPLUS',
+    expiresDay: newDay + duration,
+  }];
+}
+
 export function initGame(): GameState {
   const markets: Record<string, TownMarket> = {};
-  TOWNS.forEach((town, i) => {
-    markets[town.id] = buildMarket(town, i * 100);
-  });
+  TOWNS.forEach((town, i) => { markets[town.id] = buildMarket(town, i * 100); });
 
   const inventory: PlayerInventory = {};
   ALL_GOODS.forEach(g => { inventory[g.id] = 0; });
 
+  const first = CONTRACTS[0];
+  const dueDay = 1 + first.days;
+
   return {
     day: 1,
-    gold: 200,
+    gold: 200 + first.loan,
     currentTownId: 'farmstead',
     inventory,
     costBasis: {},
     cargoCapacity: 20,
     markets,
-    log: ['You begin your merchant journey at Farmstead with 200 gold.'],
-    milestoneReached: -1,
+    log: [
+      `You borrowed ${first.loan}g from the Merchant's Guild. Repay ${first.repay}g by Day ${dueDay}.`,
+      'Your journey begins at Farmstead with 700 gold.',
+    ],
     upgrades: { cargoLevel: 0, speedLevel: 0 },
+    contractIndex: 0,
+    contractDebt: first.repay,
+    contractBaseRepay: first.repay,
+    contractDueDay: dueDay,
+    priceEvents: [],
+    gamePhase: 'playing',
   };
 }
 
@@ -139,13 +200,48 @@ function driftMarkets(state: GameState, days: number): GameState {
   return { ...state, markets };
 }
 
+function applyOverdue(state: GameState, newDay: number): GameState {
+  if (state.gamePhase !== 'playing' || newDay <= state.contractDueDay) return state;
+
+  const overdueDays = newDay - state.contractDueDay;
+  const newDebt = Math.round(state.contractBaseRepay * Math.pow(1 + OVERDUE_RATE, overdueDays));
+
+  if (overdueDays > BANKRUPTCY_DAYS) {
+    const contractName = CONTRACTS[state.contractIndex]?.label ?? 'contract';
+    return {
+      ...state,
+      contractDebt: newDebt,
+      gamePhase: 'lost',
+      lostReason: `Debt spiraled to ${newDebt.toLocaleString()}g on Day ${newDay}. Bankrupt.`,
+      log: [
+        `💸 BANKRUPT — the "${contractName}" debt grew to ${newDebt.toLocaleString()}g. Game over.`,
+        ...state.log.slice(0, 19),
+      ],
+    };
+  }
+
+  const newState = { ...state, contractDebt: newDebt };
+  if (overdueDays === 1) {
+    return {
+      ...newState,
+      log: [
+        `⚠️ Contract overdue! Interest now compounding — debt is ${newDebt.toLocaleString()}g and rising 8%/day.`,
+        ...state.log.slice(0, 19),
+      ],
+    };
+  }
+  return newState;
+}
+
 export interface TravelResult {
   state: GameState;
   event: TravelEvent | null;
 }
 
 export function travel(state: GameState, destinationId: string): TravelResult {
-  if (state.currentTownId === destinationId) return { state, event: null };
+  if (state.currentTownId === destinationId || state.gamePhase !== 'playing') {
+    return { state, event: null };
+  }
 
   const fromTown = TOWNS.find(t => t.id === state.currentTownId)!;
   const toTown = TOWNS.find(t => t.id === destinationId)!;
@@ -153,19 +249,24 @@ export function travel(state: GameState, destinationId: string): TravelResult {
 
   let newState = driftMarkets(state, days);
   const newDay = newState.day + days;
+
+  const newPriceEvents = updatePriceEvents(newState.priceEvents, newState.day, newDay);
+
   newState = {
     ...newState,
     day: newDay,
     currentTownId: destinationId,
+    priceEvents: newPriceEvents,
     log: [
       `Day ${newDay}: Arrived at ${toTown.name} after ${days} day${days > 1 ? 's' : ''} of travel.`,
       ...newState.log.slice(0, 19),
     ],
   };
 
-  // seed based on departure state, not gold (avoids float precision issues)
+  newState = applyOverdue(newState, newDay);
+
   const travelSeed = state.day * 997 + state.currentTownId.length * 53 + destinationId.length * 31;
-  const event = rollTravelEvent(newState, travelSeed);
+  const event = newState.gamePhase === 'playing' ? rollTravelEvent(newState, travelSeed) : null;
   const stateWithEvent = event ? event.apply(newState) : newState;
 
   return { state: stateWithEvent, event };
@@ -173,7 +274,8 @@ export function travel(state: GameState, destinationId: string): TravelResult {
 
 export function buyGood(state: GameState, goodId: GoodId, qty: number): GameState {
   const market = state.markets[state.currentTownId];
-  const priceEach = market.buyPrice[goodId];
+  const eventMult = getEventMultiplier(state.priceEvents, state.currentTownId, goodId, state.day);
+  const priceEach = Math.round(market.buyPrice[goodId] * eventMult);
   const totalCost = priceEach * qty;
   const cargoUsed = getCargoUsed(state.inventory);
 
@@ -187,7 +289,7 @@ export function buyGood(state: GameState, goodId: GoodId, qty: number): GameStat
 
   const newMarket = { ...market };
   const newSupply = { ...market.supplyModifier };
-  newSupply[goodId] = clamp(newSupply[goodId] + qty * 0.015, 0.7, 1.5);
+  newSupply[goodId] = clamp(newSupply[goodId] + qty * 0.02, 0.7, 1.5);
   const town = TOWNS.find(t => t.id === state.currentTownId)!;
   const newBuy = { ...market.buyPrice };
   const newSell = { ...market.sellPrice };
@@ -218,13 +320,14 @@ export function sellGood(state: GameState, goodId: GoodId, qty: number): GameSta
 
   if (qty <= 0 || qty > available) return state;
 
-  const priceEach = market.sellPrice[goodId];
+  const eventMult = getEventMultiplier(state.priceEvents, state.currentTownId, goodId, state.day);
+  const priceEach = Math.round(market.sellPrice[goodId] * eventMult);
   const earned = priceEach * qty;
   const newQty = available - qty;
 
   const newMarket = { ...market };
   const newSupply = { ...market.supplyModifier };
-  newSupply[goodId] = clamp(newSupply[goodId] - qty * 0.015, 0.7, 1.5);
+  newSupply[goodId] = clamp(newSupply[goodId] - qty * 0.02, 0.7, 1.5);
   const town = TOWNS.find(t => t.id === state.currentTownId)!;
   const newBuy = { ...market.buyPrice };
   const newSell = { ...market.sellPrice };
@@ -235,20 +338,10 @@ export function sellGood(state: GameState, goodId: GoodId, qty: number): GameSta
   newMarket.buyPrice = newBuy;
   newMarket.sellPrice = newSell;
 
-  const good = GOODS[goodId];
-  const newGold = state.gold + earned;
-
-  // clear cost basis when fully sold
   const newCostBasis = { ...state.costBasis };
   if (newQty === 0) delete newCostBasis[goodId];
 
-  // check milestone crossing
-  let { milestoneReached } = state;
-  const nextIdx = milestoneReached + 1;
-  if (nextIdx < WIN_MILESTONES.length && newGold >= WIN_MILESTONES[nextIdx]) {
-    milestoneReached = nextIdx;
-  }
-
+  const good = GOODS[goodId];
   const basisCost = state.costBasis[goodId] ?? 0;
   const profitNote = basisCost > 0
     ? ` (${priceEach >= basisCost ? '+' : ''}${(priceEach - basisCost) * qty}g profit)`
@@ -256,11 +349,10 @@ export function sellGood(state: GameState, goodId: GoodId, qty: number): GameSta
 
   return {
     ...state,
-    gold: newGold,
+    gold: state.gold + earned,
     inventory: { ...state.inventory, [goodId]: newQty },
     costBasis: newCostBasis,
     markets: { ...state.markets, [state.currentTownId]: newMarket },
-    milestoneReached,
     log: [
       `Sold ${qty}× ${good.name} for ${earned}g (${priceEach}g each)${profitNote}.`,
       ...state.log.slice(0, 19),
@@ -271,6 +363,43 @@ export function sellGood(state: GameState, goodId: GoodId, qty: number): GameSta
 export function sellAllGood(state: GameState, goodId: GoodId): GameState {
   const qty = state.inventory[goodId] || 0;
   return qty > 0 ? sellGood(state, goodId, qty) : state;
+}
+
+export function payContract(state: GameState): GameState {
+  if (state.gold < state.contractDebt || state.gamePhase !== 'playing') return state;
+
+  const newGold = state.gold - state.contractDebt;
+  const newIdx = state.contractIndex + 1;
+
+  if (newIdx >= CONTRACTS.length) {
+    return {
+      ...state,
+      gold: newGold,
+      contractIndex: newIdx,
+      contractDebt: 0,
+      contractBaseRepay: 0,
+      gamePhase: 'won',
+      log: [
+        `🏆 All contracts repaid on Day ${state.day}! The empire is yours!`,
+        ...state.log.slice(0, 19),
+      ],
+    };
+  }
+
+  const next = CONTRACTS[newIdx];
+  const dueDay = state.day + next.days;
+  return {
+    ...state,
+    gold: newGold + next.loan,
+    contractIndex: newIdx,
+    contractDebt: next.repay,
+    contractBaseRepay: next.repay,
+    contractDueDay: dueDay,
+    log: [
+      `Contract paid! Borrowed ${next.loan.toLocaleString()}g — repay ${next.repay.toLocaleString()}g by Day ${dueDay}.`,
+      ...state.log.slice(0, 19),
+    ],
+  };
 }
 
 export function buyCargoUpgrade(state: GameState): GameState {
@@ -303,7 +432,8 @@ export function bestSellTown(state: GameState, goodId: GoodId): { townId: string
   let best = { townId: '', sellPrice: 0 };
   TOWNS.forEach(town => {
     if (town.id === state.currentTownId) return;
-    const price = state.markets[town.id].sellPrice[goodId];
+    const mult = getEventMultiplier(state.priceEvents, town.id, goodId, state.day);
+    const price = Math.round(state.markets[town.id].sellPrice[goodId] * mult);
     if (price > best.sellPrice) best = { townId: town.id, sellPrice: price };
   });
   return best;
@@ -312,13 +442,21 @@ export function bestSellTown(state: GameState, goodId: GoodId): { townId: string
 export function migrateState(raw: GameState): GameState {
   const state = { ...raw };
   if (!state.upgrades) state.upgrades = { cargoLevel: 0, speedLevel: 0 };
-  if (state.milestoneReached === undefined) state.milestoneReached = -1;
   if (!state.costBasis) state.costBasis = {};
+  if (!state.priceEvents) state.priceEvents = [];
+  if (!state.gamePhase) state.gamePhase = 'playing';
+  // migrate from old milestone system
+  if (state.contractIndex === undefined) {
+    const first = CONTRACTS[0];
+    state.contractIndex = 0;
+    state.contractDebt = first.repay;
+    state.contractBaseRepay = first.repay;
+    state.contractDueDay = state.day + first.days;
+  }
   // remove legacy fields
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  delete (state as any).won;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  delete (state as any).winTarget;
+  const s = state as any;
+  delete s.won; delete s.winTarget; delete s.milestoneReached;
   return state;
 }
 

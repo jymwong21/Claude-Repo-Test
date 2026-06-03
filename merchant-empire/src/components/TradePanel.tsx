@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { GameState } from '../lib/gameState';
-import { buyGood, sellGood, sellAllGood, getCargoUsed, bestSellTown } from '../lib/gameState';
+import { buyGood, sellGood, sellAllGood, getCargoUsed, bestSellTown, getEventMultiplier } from '../lib/gameState';
 import type { GoodId } from '../lib/goods';
 import { GOODS, ALL_GOODS } from '../lib/goods';
 import { TOWNS } from '../lib/towns';
@@ -170,6 +170,9 @@ export default function TradePanel({ state, onChange }: Props) {
               const isProduced = town.produces.includes(good.id);
               const isDemanded = town.demands.includes(good.id);
               const badge = priceBadge(buyPrice, GOODS[good.id].basePrice);
+              const activeEvent = state.priceEvents.find(
+                e => e.townId === state.currentTownId && e.goodId === good.id && e.expiresDay > state.day
+              );
               const maxBuy = maxBuyQty(good.id);
               const canBuy = state.gold >= buyPrice * qty && cargoFree >= qty && qty > 0;
               const canSell = held >= qty && qty > 0;
@@ -190,24 +193,43 @@ export default function TradePanel({ state, onChange }: Props) {
                   {/* You pay (buy price) */}
                   <td className="text-right px-1">
                     <div className="inline-flex flex-col items-end gap-0.5">
-                      <span className="text-amber-300 font-mono text-xs">{buyPrice}g</span>
-                      <span className={`text-[9px] font-bold px-1 rounded leading-tight ${badge.cls}`}>
-                        {badge.label}
+                      <span className="text-amber-300 font-mono text-xs">
+                        {Math.round(buyPrice * getEventMultiplier(state.priceEvents, state.currentTownId, good.id, state.day))}g
                       </span>
+                      {activeEvent ? (
+                        <span className={`text-[9px] font-bold px-1 rounded leading-tight ${
+                          activeEvent.label === 'SHORTAGE'
+                            ? 'bg-red-900 text-red-300'
+                            : 'bg-blue-900 text-blue-300'
+                        }`}>
+                          ⚡{activeEvent.label}
+                        </span>
+                      ) : (
+                        <span className={`text-[9px] font-bold px-1 rounded leading-tight ${badge.cls}`}>
+                          {badge.label}
+                        </span>
+                      )}
                     </div>
                   </td>
 
                   {/* Town pays (sell price) */}
                   <td className="text-right px-1">
-                    <span className="text-slate-400 font-mono text-xs">{sellPrice}g</span>
-                    {held > 0 && state.costBasis[good.id] !== undefined && (
-                      <div className={`text-[9px] font-bold text-right ${
-                        sellPrice >= (state.costBasis[good.id] ?? 0) ? 'text-green-600' : 'text-red-700'
-                      }`}>
-                        {sellPrice >= (state.costBasis[good.id] ?? 0) ? '+' : ''}
-                        {sellPrice - (state.costBasis[good.id] ?? 0)}g
-                      </div>
-                    )}
+                    {(() => {
+                      const effectiveSell = Math.round(sellPrice * getEventMultiplier(state.priceEvents, state.currentTownId, good.id, state.day));
+                      return (
+                        <>
+                          <span className="text-slate-400 font-mono text-xs">{effectiveSell}g</span>
+                          {held > 0 && state.costBasis[good.id] !== undefined && (
+                            <div className={`text-[9px] font-bold text-right ${
+                              effectiveSell >= (state.costBasis[good.id] ?? 0) ? 'text-green-600' : 'text-red-700'
+                            }`}>
+                              {effectiveSell >= (state.costBasis[good.id] ?? 0) ? '+' : ''}
+                              {effectiveSell - (state.costBasis[good.id] ?? 0)}g
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
                   </td>
 
                   {/* Held */}

@@ -10,7 +10,7 @@ export interface TravelEvent {
 }
 
 function seeded(seed: number): number {
-  const x = Math.sin(seed) * 10000;
+  const x = Math.sin(seed + 1) * 10000;
   return x - Math.floor(x);
 }
 
@@ -23,7 +23,8 @@ export function rollTravelEvent(state: GameState, travelSeed: number): TravelEve
 }
 
 function buildEvents(state: GameState, seed: number): TravelEvent[] {
-  const goldLost = Math.max(15, Math.floor(state.gold * 0.13));
+  // Bandits now hit harder — 25% of gold, more meaningful relative to debt
+  const goldLost = Math.max(20, Math.floor(state.gold * 0.25));
 
   const cargoUsed = Object.values(state.inventory).reduce((a, b) => a + b, 0);
   const freeSlots = state.cargoCapacity - cargoUsed;
@@ -44,7 +45,7 @@ function buildEvents(state: GameState, seed: number): TravelEvent[] {
       title: 'Bandit Ambush!',
       emoji: '⚔️',
       tone: 'bad',
-      description: `Armed bandits blocked the road and demanded payment. You paid ${goldLost}g to pass.`,
+      description: `Bandits blocked the road and demanded payment. You lost ${goldLost}g — money you can't afford to spare.`,
       apply: s => ({
         ...s,
         gold: Math.max(0, s.gold - goldLost),
@@ -62,10 +63,10 @@ function buildEvents(state: GameState, seed: number): TravelEvent[] {
       }),
     },
     {
-      title: 'Merchant\'s Tip',
+      title: 'Market Rumor',
       emoji: '🗣️',
       tone: 'neutral',
-      description: 'A fellow traveler shared news: "The Capital is desperate for Spices right now. Their prices are sky-high." Useful intel.',
+      description: 'A fellow traveler tips you off: "Prices are shifting wildly across the region. Check the market news — there may be opportunities."',
       apply: s => s,
     },
   ];
@@ -75,7 +76,7 @@ function buildEvents(state: GameState, seed: number): TravelEvent[] {
       title: 'Abandoned Wagon',
       emoji: '🎁',
       tone: 'good',
-      description: `You came across an abandoned merchant wagon. Inside: ${foundQty}× ${foundGood.name}. Finders keepers.`,
+      description: `You came across an abandoned merchant wagon. Inside: ${foundQty}× ${foundGood.name}. Useful cargo in tight times.`,
       apply: s => ({
         ...s,
         inventory: { ...s.inventory, [foundGood.id]: (s.inventory[foundGood.id] ?? 0) + foundQty },
@@ -89,7 +90,7 @@ function buildEvents(state: GameState, seed: number): TravelEvent[] {
       title: 'Storm Damage',
       emoji: '⛈️',
       tone: 'bad',
-      description: `A violent storm soaked your cargo. ${damagedQty}× ${damagedGood.name} was ruined and had to be discarded.`,
+      description: `A violent storm soaked your cargo. ${damagedQty}× ${damagedGood.name} was ruined — a painful loss when you're racing a deadline.`,
       apply: s => ({
         ...s,
         inventory: {
@@ -97,6 +98,23 @@ function buildEvents(state: GameState, seed: number): TravelEvent[] {
           [damagedGood.id]: Math.max(0, (s.inventory[damagedGood.id] ?? 0) - damagedQty),
         },
         log: [`Storm ruined ${damagedQty}× ${damagedGood.name}.`, ...s.log.slice(0, 19)],
+      }),
+    });
+  }
+
+  // Debt collector appears when overdue
+  if (state.day > state.contractDueDay && heldGoods.length > 0) {
+    const seized = heldGoods[Math.floor(seeded(seed * 67) * heldGoods.length)];
+    const seizedQty = Math.max(1, Math.floor((state.inventory[seized.id] || 0) * 0.2));
+    pool.push({
+      title: 'Debt Collector',
+      emoji: '📜',
+      tone: 'bad',
+      description: `A debt collector hired by your moneylender intercepts you on the road. They seize ${seizedQty}× ${seized.name} as partial payment.`,
+      apply: s => ({
+        ...s,
+        inventory: { ...s.inventory, [seized.id]: Math.max(0, (s.inventory[seized.id] ?? 0) - seizedQty) },
+        log: [`Debt collector seized ${seizedQty}× ${seized.name}.`, ...s.log.slice(0, 19)],
       }),
     });
   }
