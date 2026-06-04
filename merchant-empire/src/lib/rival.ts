@@ -26,14 +26,14 @@ export interface AdvanceRivalResult {
   justPaidIndex: number | null;
 }
 
-export function advanceRival(rival: RivalState, day: number): AdvanceRivalResult {
+export function advanceRival(rival: RivalState, day: number, payDays: readonly number[]): AdvanceRivalResult {
   const nextPayIdx = rival.contractIndex;
-  if (nextPayIdx < RIVAL_PAY_DAYS.length && day >= RIVAL_PAY_DAYS[nextPayIdx]) {
+  if (nextPayIdx < payDays.length && day >= payDays[nextPayIdx]) {
     return {
       rival: {
         contractIndex: rival.contractIndex + 1,
-        paidOnDay: [...rival.paidOnDay, RIVAL_PAY_DAYS[nextPayIdx]],
-        lastContractPaidDay: RIVAL_PAY_DAYS[nextPayIdx],
+        paidOnDay: [...rival.paidOnDay, payDays[nextPayIdx]],
+        lastContractPaidDay: payDays[nextPayIdx],
       },
       justPaidIndex: nextPayIdx,
     };

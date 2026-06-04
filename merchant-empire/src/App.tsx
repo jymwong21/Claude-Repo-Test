@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import type { GameState, TravelResult, RivalNotification } from './lib/gameState';
+import type { GameState, TravelResult, RivalNotification, Difficulty } from './lib/gameState';
 import { initGame, saveGame, loadGame, payContract, travel } from './lib/gameState';
 import type { TravelEvent } from './lib/events';
 import { CONTRACTS } from './lib/contracts';
@@ -14,6 +14,7 @@ import EventModal from './components/EventModal';
 import HelpModal from './components/HelpModal';
 import GameScreen from './components/GameScreen';
 import TutorialModal from './components/TutorialModal';
+import DifficultyModal from './components/DifficultyModal';
 
 type Tab = 'trade' | 'travel' | 'upgrade';
 
@@ -42,6 +43,7 @@ function buildRivalEvent(notif: RivalNotification): TravelEvent {
 
 export default function App() {
   const [state, setState] = useState<GameState>(() => loadGame() ?? initGame());
+  const [pendingDifficulty, setPendingDifficulty] = useState<boolean>(() => !loadGame());
   const [tab, setTab] = useState<Tab>('trade');
   const [pendingEvent, setPendingEvent] = useState<TravelEvent | null>(null);
   const [rivalNotif, setRivalNotif] = useState<RivalNotification | null>(null);
@@ -51,6 +53,16 @@ export default function App() {
   useEffect(() => {
     saveGame(state);
   }, [state]);
+
+  function handleDifficultySelect(difficulty: Difficulty) {
+    const fresh = initGame(difficulty);
+    setState(fresh);
+    saveGame(fresh);
+    setTab('trade');
+    setPendingEvent(null);
+    setRivalNotif(null);
+    setPendingDifficulty(false);
+  }
 
   function handleTravel(result: TravelResult) {
     setState(result.state);
@@ -66,12 +78,7 @@ export default function App() {
   }
 
   function handleNewGame() {
-    const fresh = initGame();
-    setState(fresh);
-    saveGame(fresh);
-    setTab('trade');
-    setPendingEvent(null);
-    setRivalNotif(null);
+    setPendingDifficulty(true);
     setShowTutorial(true);
     localStorage.removeItem(TUTORIAL_KEY);
   }
@@ -81,34 +88,38 @@ export default function App() {
     setShowHelp(false);
   }
 
+  if (pendingDifficulty) {
+    return <DifficultyModal onSelect={handleDifficultySelect} />;
+  }
+
   if (state.gamePhase !== 'playing') {
     return <GameScreen state={state} onNewGame={handleNewGame} />;
   }
 
   return (
-    <div className="min-h-svh bg-[#0f0e17] text-white flex flex-col">
-      <header className="px-4 pt-4 pb-2 flex items-center justify-between max-w-2xl w-full mx-auto">
+    <div className="min-h-svh bg-gradient-to-b from-slate-950 to-[#0f0e17] text-white flex flex-col">
+      <header className="px-4 pt-4 pb-3 flex items-center justify-between max-w-2xl w-full mx-auto border-b border-amber-900/20">
         <div>
-          <h1 className="text-xl font-bold text-amber-400 leading-none">⚖️ Merchant Empire</h1>
-          <p className="text-xs text-slate-500">Buy low. Sell high. Outrun the rival.</p>
+          <h1 className="text-xl font-bold text-amber-400 leading-none tracking-tight">⚖️ Merchant Empire</h1>
+          <p className="text-xs text-slate-500 mt-0.5">Buy low. Sell high. Outrun the rival.</p>
         </div>
         <div className="flex gap-2">
           <button
             onClick={() => setShowHelp(true)}
-            className="text-xs text-slate-500 hover:text-slate-300 border border-slate-700 hover:border-slate-500 rounded px-2 py-1 transition-colors"
+            className="text-xs text-slate-500 hover:text-slate-300 border border-slate-700 hover:border-slate-500 rounded-lg px-2.5 py-1.5 transition-colors"
           >
             ? Help
           </button>
           <button
             onClick={handleNewGame}
-            className="text-xs text-slate-500 hover:text-slate-300 border border-slate-700 hover:border-slate-500 rounded px-2 py-1 transition-colors"
+            className="text-xs text-slate-500 hover:text-slate-300 border border-slate-700 hover:border-slate-500 rounded-lg px-2.5 py-1.5 transition-colors"
           >
             New Game
           </button>
         </div>
       </header>
 
-      <main className="flex-1 flex flex-col gap-3 px-4 pb-8 max-w-2xl w-full mx-auto">
+      <main className="flex-1 flex flex-col gap-3 px-4 pb-8 pt-3 max-w-2xl w-full mx-auto">
         <HUD state={state} onPayContract={handlePayContract} />
 
         <WorldMap
@@ -118,7 +129,7 @@ export default function App() {
           onTravel={(townId) => handleTravel(travel(state, townId))}
         />
 
-        <div className="flex gap-1 bg-slate-900 rounded-xl p-1">
+        <div className="flex gap-1 bg-slate-900/80 rounded-xl p-1 border border-slate-800/50">
           {([
             { key: 'trade', label: '🛒 Trade' },
             { key: 'travel', label: '🗺️ Travel' },
@@ -127,8 +138,10 @@ export default function App() {
             <button
               key={key}
               onClick={() => setTab(key)}
-              className={`flex-1 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                tab === key ? 'bg-amber-600 text-white' : 'text-slate-400 hover:text-slate-200'
+              className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
+                tab === key
+                  ? 'bg-amber-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
               }`}
             >
               {label}
@@ -136,7 +149,7 @@ export default function App() {
           ))}
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+        <div className="bg-slate-900/90 border border-slate-800/60 rounded-xl p-4 shadow-lg">
           {tab === 'trade' && <TradePanel state={state} onChange={setState} />}
           {tab === 'travel' && (
             <TravelPanel state={state} onChange={handleTravel} />
@@ -147,7 +160,6 @@ export default function App() {
         <EventLog log={state.log} />
       </main>
 
-      {/* Travel events first, then rival notification */}
       {pendingEvent && (
         <EventModal event={pendingEvent} onClose={() => setPendingEvent(null)} />
       )}

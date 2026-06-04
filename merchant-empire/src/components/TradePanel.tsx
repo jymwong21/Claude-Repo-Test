@@ -65,7 +65,10 @@ export default function TradePanel({ state, onChange }: Props) {
     const best = bestSellTown(state, good.id);
     const bestTown = TOWNS.find(t => t.id === best.townId)!;
     const profitPerUnit = costPaid > 0 ? best.sellPrice - costPaid : null;
-    return { good, held, costPaid, best, bestTown, profitPerUnit };
+    const sellDemand = best.townId
+      ? getDemandRemaining(state.demandUsed, best.townId, good.id, GOODS[good.id].basePrice, state.demandCapMult)
+      : null;
+    return { good, held, costPaid, best, bestTown, profitPerUnit, sellDemand };
   }).filter(r => r.best.townId !== '');
 
   // top buy opportunities at this town (regardless of what you're holding)
@@ -116,22 +119,34 @@ export default function TradePanel({ state, onChange }: Props) {
           {cargoRoutes.length > 0 && (
             <div>
               <div className="text-[10px] text-slate-500 mb-1 uppercase tracking-wide">Sell your cargo at</div>
-              {cargoRoutes.map(({ good, held, costPaid, bestTown, best, profitPerUnit }) => (
-                <div key={good.id} className="flex items-center justify-between text-xs py-0.5 gap-2">
-                  <span className="text-slate-300">
-                    {good.emoji} {good.name} ×{held}
-                    {costPaid > 0 && <span className="text-slate-600 ml-1">(paid {costPaid}g)</span>}
-                  </span>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-slate-400">{bestTown.emoji} {bestTown.name} · {best.sellPrice}g/unit</span>
-                    {profitPerUnit !== null && (
-                      <span className={`font-mono font-bold text-xs ${profitPerUnit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        {profitPerUnit >= 0 ? '+' : ''}{profitPerUnit * held}g
-                      </span>
-                    )}
+              {cargoRoutes.map(({ good, held, costPaid, bestTown, best, profitPerUnit, sellDemand }) => {
+                const demandColor = sellDemand
+                  ? sellDemand.remaining === 0 ? 'text-red-500'
+                    : sellDemand.remaining < held ? 'text-amber-400'
+                    : 'text-green-600'
+                  : 'text-slate-600';
+                return (
+                  <div key={good.id} className="flex items-center justify-between text-xs py-0.5 gap-2">
+                    <span className="text-slate-300">
+                      {good.emoji} {good.name} ×{held}
+                      {costPaid > 0 && <span className="text-slate-600 ml-1">(paid {costPaid}g)</span>}
+                    </span>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className="text-slate-400">{bestTown.emoji} {bestTown.name} · {best.sellPrice}g</span>
+                      {sellDemand && (
+                        <span className={`text-[10px] font-mono ${demandColor}`}>
+                          {sellDemand.remaining}/{sellDemand.cap}
+                        </span>
+                      )}
+                      {profitPerUnit !== null && (
+                        <span className={`font-mono font-bold text-xs ${profitPerUnit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          {profitPerUnit >= 0 ? '+' : ''}{profitPerUnit * held}g
+                        </span>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
@@ -167,7 +182,7 @@ export default function TradePanel({ state, onChange }: Props) {
           const activeEvent = state.priceEvents.find(
             e => e.townId === state.currentTownId && e.goodId === good.id && e.expiresDay > state.day
           );
-          const demand = getDemandRemaining(state.demandUsed, state.currentTownId, good.id, GOODS[good.id].basePrice);
+          const demand = getDemandRemaining(state.demandUsed, state.currentTownId, good.id, GOODS[good.id].basePrice, state.demandCapMult);
           const demandPct = demand.cap > 0 ? demand.used / demand.cap : 0;
           const demandDotColor = demandPct >= 1 ? 'text-red-500' : demandPct >= 0.5 ? 'text-amber-400' : 'text-green-600';
           const maxBuy = maxBuyQty(good.id);

@@ -1,6 +1,6 @@
 import { TOWNS } from '../lib/towns';
 import type { GameState, TravelResult } from '../lib/gameState';
-import { travelDays, travel, getCargoUsed, bestSellTown } from '../lib/gameState';
+import { travelDays, travel, getCargoUsed, bestSellTown, getDemandRemaining } from '../lib/gameState';
 import { ALL_GOODS, GOODS } from '../lib/goods';
 
 interface Props {
@@ -52,14 +52,19 @@ export default function TravelPanel({ state, onChange }: Props) {
               if (!best.townId) return null;
               const bestTown = TOWNS.find(t => t.id === best.townId);
               if (!bestTown) return null;
+              const sellDemand = getDemandRemaining(state.demandUsed, best.townId, good.id, GOODS[good.id].basePrice, state.demandCapMult);
+              const demandColor = sellDemand.remaining === 0 ? 'text-red-500'
+                : sellDemand.remaining < held ? 'text-amber-400'
+                : 'text-green-600';
               return (
                 <div key={good.id} className="flex items-center justify-between text-xs">
                   <span className="text-slate-300">
                     {GOODS[good.id].emoji} {GOODS[good.id].name} ×{held}
                   </span>
-                  <span className="text-slate-400">
+                  <span className="text-slate-400 flex items-center gap-1.5">
                     → {bestTown.emoji} {bestTown.name}
-                    <span className="text-amber-400 font-mono ml-1">{best.sellPrice}g</span>
+                    <span className="text-amber-400 font-mono">{best.sellPrice}g</span>
+                    <span className={`text-[10px] font-mono ${demandColor}`}>{sellDemand.remaining}/{sellDemand.cap}</span>
                   </span>
                 </div>
               );

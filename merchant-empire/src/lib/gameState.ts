@@ -8,8 +8,37 @@ import {
   CONTRACTS, OVERDUE_RATE, BANKRUPTCY_DAYS,
   getDemandCap, DEMAND_CAP_WINDOW, DEMAND_SATURATED_PRICE_MULT,
 } from './contracts';
-import { initRival, advanceRival, RIVAL_NAME } from './rival';
+import { initRival, advanceRival, RIVAL_NAME, RIVAL_PAY_DAYS } from './rival';
 import type { RivalState } from './rival';
+
+export type Difficulty = 'apprentice' | 'merchant' | 'factor';
+
+export const DIFFICULTY_CONFIGS = {
+  apprentice: {
+    label: 'Apprentice',
+    emoji: '🌱',
+    tagline: 'Generous markets, slow rival. Learn the routes.',
+    demandCapMult: 2,
+    rivalPayDays: [20, 55, 100, 155] as readonly number[],
+    startGold: 300,
+  },
+  merchant: {
+    label: 'Merchant',
+    emoji: '⚖️',
+    tagline: 'Standard rules. Tight deadlines, competitive rival.',
+    demandCapMult: 1,
+    rivalPayDays: RIVAL_PAY_DAYS as readonly number[],
+    startGold: 200,
+  },
+  factor: {
+    label: 'Factor',
+    emoji: '🔥',
+    tagline: 'Demand saturates fast. Silas runs lean. Veterans only.',
+    demandCapMult: 0.75,
+    rivalPayDays: [11, 28, 55, 90] as readonly number[],
+    startGold: 150,
+  },
+} as const;
 
 export interface TownMarket {
   townId: string;
@@ -71,6 +100,10 @@ export interface GameState {
   rival: RivalState;
   demandUsed: Record<string, Record<string, number>>;  // townId → goodId → units sold this window
   demandWindowStart: number;
+  // difficulty
+  difficulty: Difficulty;
+  demandCapMult: number;
+  rivalPayDays: readonly number[];
 }
 
 function clamp(val: number, min: number, max: number) {
@@ -103,9 +136,10 @@ export function getDemandRemaining(
   townId: string,
   goodId: string,
   basePrice: number,
+  capMult = 1,
 ): { used: number; cap: number; remaining: number } {
   const used = demandUsed[townId]?.[goodId] ?? 0;
-  const cap = getDemandCap(basePrice);
+  const cap = Math.max(1, Math.round(getDemandCap(basePrice) * capMult));
   return { used, cap, remaining: Math.max(0, cap - used) };
 }
 
@@ -158,7 +192,8 @@ function updatePriceEvents(priceEvents: PriceEvent[], oldDay: number, newDay: nu
   }];
 }
 
-export function initGame(): GameState {
+export function initGame(difficulty: Difficulty = 'merchant'): GameState {
+  const config = DIFFICULTY_CONFIGS[difficulty];
   const markets: Record<string, TownMarket> = {};
   TOWNS.forEach((town, i) => { markets[town.id] = buildMarket(town, i * 100); });
 
@@ -170,7 +205,7 @@ export function initGame(): GameState {
 
   return {
     day: 1,
-    gold: 200 + first.loan,
+    gold: config.startGold + first.loan,
     currentTownId: 'farmstead',
     inventory,
     costBasis: {},
@@ -178,7 +213,7 @@ export function initGame(): GameState {
     markets,
     log: [
       `You borrowed ${first.loan}g from the Merchant's Guild. Repay ${first.repay}g by Day ${dueDay}.`,
-      'Your journey begins at Farmstead with 700 gold.',
+      `Your journey begins at Farmstead with ${config.startGold + first.loan}g. Difficulty: ${config.label}.`,
     ],
     upgrades: { cargoLevel: 0, speedLevel: 0 },
     contractIndex: 0,
@@ -190,6 +225,9 @@ export function initGame(): GameState {
     rival: initRival(),
     demandUsed: {},
     demandWindowStart: 1,
+    difficulty,
+    demandCapMult: config.demandCapMult,
+    rivalPayDays: [...config.rivalPayDays],
   };
 }
 
@@ -295,7 +333,8 @@ export function travel(state: GameState, destinationId: string): TravelResult {
   let rivalNotification: RivalNotification | null = null;
   let newContractDueDay = newState.contractDueDay;
 
-  let advResult = advanceRival(currentRival, newDay);
+  const payDays = newState.rivalPayDays;
+  let advResult = advanceRival(currentRival, newDay, payDays);
   while (advResult.justPaidIndex !== null) {
     currentRival = advResult.rival;
     const justPaidIdx = advResult.justPaidIndex;
@@ -308,7 +347,7 @@ export function travel(state: GameState, destinationId: string): TravelResult {
       rivalNotification = { contractIndex: justPaidIdx, playerPenalty: false, daysDelta: 0 };
     }
 
-    advResult = advanceRival(currentRival, newDay);
+    advResult = advanceRival(currentRival, newDay, payDays);
   }
   currentRival = advResult.rival;
 
@@ -390,7 +429,7 @@ export function sellGood(state: GameState, goodId: GoodId, qty: number): GameSta
   // Split sale at demand cap boundary
   const good = GOODS[goodId];
   const { used, cap, remaining } = getDemandRemaining(
-    state.demandUsed, state.currentTownId, goodId, good.basePrice
+    state.demandUsed, state.currentTownId, goodId, good.basePrice, state.demandCapMult
   );
   const normalQty = Math.min(qty, remaining);
   const saturatedQty = qty - normalQty;
@@ -555,12 +594,16 @@ export function buySpeedUpgrade(state: GameState): GameState {
 }
 
 export function bestSellTown(state: GameState, goodId: GoodId): { townId: string; sellPrice: number } {
+  const good = GOODS[goodId];
   let best = { townId: '', sellPrice: 0 };
   TOWNS.forEach(town => {
     if (town.id === state.currentTownId) return;
     const mult = getEventMultiplier(state.priceEvents, town.id, goodId, state.day);
-    const price = Math.round(state.markets[town.id].sellPrice[goodId] * mult);
-    if (price > best.sellPrice) best = { townId: town.id, sellPrice: price };
+    const fullPrice = Math.round(state.markets[town.id].sellPrice[goodId] * mult);
+    const demand = getDemandRemaining(state.demandUsed, town.id, goodId, good.basePrice, state.demandCapMult);
+    // Use saturated price if demand is fully spent so saturated towns rank lower
+    const effectivePrice = demand.remaining > 0 ? fullPrice : Math.max(1, Math.round(fullPrice * DEMAND_SATURATED_PRICE_MULT));
+    if (effectivePrice > best.sellPrice) best = { townId: town.id, sellPrice: effectivePrice };
   });
   return best;
 }
@@ -574,6 +617,9 @@ export function migrateState(raw: GameState): GameState {
   if (!state.rival) state.rival = initRival();
   if (!state.demandUsed) state.demandUsed = {};
   if (state.demandWindowStart === undefined) state.demandWindowStart = state.day;
+  if (!state.difficulty) state.difficulty = 'merchant';
+  if (!state.demandCapMult) state.demandCapMult = 1;
+  if (!state.rivalPayDays) state.rivalPayDays = [...RIVAL_PAY_DAYS];
   // migrate from old milestone/contract system
   if (state.contractIndex === undefined) {
     const first = CONTRACTS[0];

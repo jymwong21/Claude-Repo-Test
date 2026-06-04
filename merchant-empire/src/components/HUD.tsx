@@ -1,5 +1,5 @@
 import type { GameState } from '../lib/gameState';
-import { getCargoUsed } from '../lib/gameState';
+import { getCargoUsed, DIFFICULTY_CONFIGS } from '../lib/gameState';
 import { GOODS } from '../lib/goods';
 import type { GoodId } from '../lib/goods';
 import { TOWNS } from '../lib/towns';
@@ -24,6 +24,10 @@ export default function HUD({ state, onPayContract }: Props) {
   const debtProgress = Math.min(100, (state.gold / state.contractDebt) * 100);
 
   const activePriceEvents = state.priceEvents.filter(e => e.expiresDay > state.day);
+  const diffCfg = DIFFICULTY_CONFIGS[state.difficulty];
+  const diffColor = state.difficulty === 'apprentice' ? 'bg-green-900/60 text-green-300 border-green-800/40'
+    : state.difficulty === 'factor' ? 'bg-red-900/60 text-red-300 border-red-800/40'
+    : 'bg-amber-900/60 text-amber-300 border-amber-800/40';
 
   const rival = state.rival;
   const rivalAhead = rival.contractIndex > state.contractIndex;
@@ -58,6 +62,7 @@ export default function HUD({ state, onPayContract }: Props) {
         </div>
         {state.upgrades.speedLevel > 0 && <span className="text-xs text-amber-500">🐎 Fast</span>}
         {state.upgrades.cargoLevel > 0 && <span className="text-xs text-slate-500">📦 Lv{state.upgrades.cargoLevel}</span>}
+        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${diffColor}`}>{diffCfg.emoji} {diffCfg.label.toUpperCase()}</span>
       </div>
 
       {/* contract panel */}
